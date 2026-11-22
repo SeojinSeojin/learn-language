@@ -286,6 +286,27 @@ How the upload command behaves:
 > until the project passes YouTube's API compliance audit. If you request `unlisted` or `public` and YouTube
 > reports a different privacy, the upload command **fails loudly** instead of reporting success.
 
+## How many videos per day?
+
+About **2 videos per day** on the free tier. Gemini text-to-speech is the limit.
+
+| Limit | Daily cap | Per video | Videos per day |
+| --- | --- | --- | --- |
+| **Gemini TTS** (`gemini-3.8-flash-lite-tts`) | 10 requests (and 3 per minute) | 4 requests | **2** |
+| Gemini dialogue (`gemini-3.6-flash`) | much higher | 1–2 requests | not the bottleneck |
+| YouTube upload API | 10,000 units by default | ~1,600 units per upload | about 6 |
+| GitHub Actions | free on public repos; 2,000 min/month on private | ~5 min | not the bottleneck |
+
+- **Reset time:** the Gemini daily quota resets at midnight Pacific time (3 AM EST).
+- **Spare requests:** two videos use 8 of the 10 TTS requests, which leaves 2 for recovery. If a local run stops
+  partway, re-run it with `--resume` and the same `--out` folder to reuse the audio already made.
+- **Re-rendering is free:** `npm run render` and `npm run sample` make no Gemini requests.
+- **More than 2 a day:** point `GEMINI_TTS_MODEL` at another TTS model (each model has its own free quota), or
+  enable billing on the Gemini project. Billing is no longer free, so the pipeline never does it on its own.
+
+Free-tier limits are set by Google and can change. Check your current limits at
+[aistudio.google.com/rate-limit](https://aistudio.google.com/rate-limit).
+
 ## Quotas and failure behavior
 
 | Exit code | Meaning |
