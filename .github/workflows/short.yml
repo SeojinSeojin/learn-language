@@ -51,8 +51,10 @@ on:
 permissions:
   contents: read
 
+# Edge TTS runs can go in parallel (one group per run). Gemini TTS runs share one group so they never
+# compete for the 3-requests-per-minute free-tier limit (GitHub keeps one waiting run and cancels older waiting ones).
 concurrency:
-  group: short-${{ github.ref }}
+  group: ${{ inputs.tts_provider == 'gemini' && 'short-gemini-tts' || format('short-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:
