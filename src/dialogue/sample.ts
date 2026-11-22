@@ -4,6 +4,7 @@ import type { Dialogue } from '../../shared/types';
 export const SAMPLE_DIALOGUE: Dialogue = {
   topic: 'Ordering iced coffee at a café',
   sceneId: 'cafe',
+  hashtags: ['IcedCoffee', 'Cafe', 'OrderingCoffee'],
   lines: [
     {
       speaker: 'lupita',
@@ -54,6 +55,7 @@ export const SAMPLE_DIALOGUE: Dialogue = {
 export const SAMPLE_DIALOGUE_PARK: Dialogue = {
   topic: 'Making weekend plans in the park',
   sceneId: 'park',
+  hashtags: ['Park', 'WeekendPlans', 'Picnic'],
   lines: [
     {
       speaker: 'jisoo',

@@ -38,9 +38,38 @@ export function dialogueJsonSchema(sceneIds: readonly string[] = SCENE_IDS) {
           required: ['speaker', 'esMX', 'ko', 'koPronunciation', 'gesture'],
         },
       },
+      hashtags: {
+        type: 'array',
+        maxItems: HASHTAG_MAX,
+        items: { type: 'string' },
+        description: 'Up to 5 topic-specific YouTube hashtags without "#" (letters, digits, underscore; no spaces or hyphens).',
+      },
     },
-    required: ['sceneId', 'lines'],
+    required: ['sceneId', 'lines', 'hashtags'],
   };
+}
+
+export const HASHTAG_MAX = 5;
+const HASHTAG_RE = /^[\p{L}\p{N}_]{2,30}$/u;
+
+/**
+ * Normalizes suggested hashtags: strips "#", drops spaces, hyphens and punctuation (YouTube ends a hashtag at
+ * those), keeps letters/digits/underscore, dedupes case-insensitively, max HASHTAG_MAX. Invalid ones are
+ * dropped instead of failing the episode, since hashtags are cosmetic.
+ */
+export function normalizeHashtags(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const v of raw) {
+    if (typeof v !== 'string') continue;
+    const tag = v.normalize('NFC').replace(/[^\p{L}\p{N}_]/gu, '');
+    if (!HASHTAG_RE.test(tag) || seen.has(tag.toLowerCase())) continue;
+    seen.add(tag.toLowerCase());
+    out.push(tag);
+    if (out.length >= HASHTAG_MAX) break;
+  }
+  return out;
 }
 
 export const DIALOGUE_JSON_SCHEMA = dialogueJsonSchema();
@@ -62,6 +91,7 @@ const LineZ = z.object({
 const DialogueZ = z.object({
   sceneId: z.enum(SCENE_IDS),
   lines: z.array(LineZ),
+  hashtags: z.unknown().optional(),
 });
 
 const HANGUL = /\p{Script=Hangul}/u;
@@ -81,7 +111,7 @@ export function validateDialogue(raw: unknown, topic: string, opts: ValidateOpti
     const issues = parsed.error.issues.map((i) => `${i.path.length ? i.path.join('.') : '(root)'}: ${i.message}`);
     throw new DialogueValidationError(issues);
   }
-  const { sceneId, lines } = parsed.data;
+  const { sceneId, lines, hashtags } = parsed.data;
   const issues: string[] = [];
 
   if (opts.requiredScene && sceneId !== opts.requiredScene) {
@@ -119,7 +149,7 @@ export function validateDialogue(raw: unknown, topic: string, opts: ValidateOpti
   });
 
   if (issues.length) throw new DialogueValidationError(issues);
-  return { topic, sceneId, lines: lines as DialogueLine[] };
+  return { topic, sceneId, lines: lines as DialogueLine[], hashtags: normalizeHashtags(hashtags) };
 }
 
 /** "id: description" list used in prompts. */

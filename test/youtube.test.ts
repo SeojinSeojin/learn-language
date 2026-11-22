@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SAMPLE_DIALOGUE } from '../src/dialogue/sample';
 import { QuotaExhaustedError, UserFacingError } from '../src/util/errors';
-import { buildYouTubeMetadata, formatMetadataForReview, normalizeMetadata, parsePrivacy, type YouTubeMetadata } from '../src/youtube/metadata';
+import { normalizeHashtags } from '../src/dialogue/schema';
+import { buildYouTubeMetadata, episodeHashtags, formatMetadataForReview, normalizeMetadata, parsePrivacy, type YouTubeMetadata } from '../src/youtube/metadata';
 import { GOOGLE_TOKEN_ENDPOINT, authorizeInteractive, loadClientSecret, refreshAccessToken, saveTokenFile } from '../src/youtube/oauth';
 import { YOUTUBE_UPLOAD_ENDPOINT, uploadVideo } from '../src/youtube/upload';
 
@@ -42,8 +43,18 @@ test('description has character labels, Hangul, ≈ hints, approximate note, AI 
   assert.match(m.description, /Scene: Café/);
   assert.match(m.description, /approximate/i);
   assert.match(m.description, /AI-generated \(Gemini TTS\)/);
-  assert.match(m.description, /#Shorts #LearnSpanish #LearnKorean #MexicanSpanish #Korean/);
+  assert.match(m.description, /#Shorts #LearnKorean #LearnSpanish #Korean #Spanish #Mexico #MexicanSpanish #KorMex #IcedCoffee #Cafe #OrderingCoffee$/);
+  assert.ok(m.tags.includes('IcedCoffee'));
   assert.ok(Buffer.byteLength(m.description) <= 5000);
+});
+
+test('hashtags: normalized, deduped against the base set, capped at 15', () => {
+  assert.deepEqual(normalizeHashtags(['#tacos', 'kor-mex', 'cena en casa', 'x', '#Tacos', 'a'.repeat(31), 42, '요리']), ['tacos', 'kormex', 'cenaencasa', '요리']);
+  assert.deepEqual(normalizeHashtags(undefined), []);
+  const tags = episodeHashtags({ ...SAMPLE_DIALOGUE, hashtags: ['korean', 'Tacos', 'a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8'] });
+  assert.equal(tags.length, 15);
+  assert.equal(tags.filter((t) => t.toLowerCase() === 'korean').length, 1);
+  assert.equal(tags[8], 'Tacos');
 });
 
 test('overrides apply and are sanitized; long description truncated to 5000 bytes', () => {

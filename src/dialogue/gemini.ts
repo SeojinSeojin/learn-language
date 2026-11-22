@@ -63,6 +63,8 @@ export function buildDialoguePrompt(topic: string, scene: SceneId | 'auto' = 'au
     `  Latin letters only, at most ${DIALOGUE_LIMITS.koPronunciation.max} characters.`,
     '- "gesture": the body gesture that best matches the line (none, wave, nod, tilt, shrug).',
     '- Stay on the given topic, keep it family-friendly, and make the exchange feel complete.',
+    '- "hashtags": 3 to 5 short YouTube hashtags specific to this topic and scene (e.g. for ordering coffee: "coffee", "cafe", "orderingcoffee").',
+    '  No "#", no spaces or hyphens; English or Spanish words. Do not repeat generic ones like Shorts, Korean, Spanish, Mexico.',
     '- Respond with JSON only, matching the provided schema.',
   ];
   if (previousIssues.length) {

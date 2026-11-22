@@ -9,14 +9,14 @@ Turns one topic (for example *"Ordering iced coffee at a café"*) into a vertica
 
 <table align="center">
   <tr>
-    <td align="center"><img src="docs/media/home-es.jpg" width="190" alt="Home scene, Spanish section"></td>
-    <td align="center"><img src="docs/media/home-ko.jpg" width="190" alt="Home scene, Korean section"></td>
-    <td align="center"><img src="docs/media/office-es.jpg" width="190" alt="Office scene, Spanish section"></td>
-    <td align="center"><img src="docs/media/office-ko.jpg" width="190" alt="Office scene, Korean section"></td>
+    <td align="center"><a href="https://youtube.com/shorts/dADMi7Ym1k8"><img src="docs/media/home-es.jpg" width="190" alt="Home scene, Spanish section"></a></td>
+    <td align="center"><a href="https://youtube.com/shorts/dADMi7Ym1k8"><img src="docs/media/home-ko.jpg" width="190" alt="Home scene, Korean section"></a></td>
+    <td align="center"><a href="https://youtube.com/shorts/gjFQUuWFemA"><img src="docs/media/office-es.jpg" width="190" alt="Office scene, Spanish section"></a></td>
+    <td align="center"><a href="https://youtube.com/shorts/gjFQUuWFemA"><img src="docs/media/office-ko.jpg" width="190" alt="Office scene, Korean section"></a></td>
   </tr>
   <tr>
-    <td align="center" colspan="2"><b>"Inviting a friend over to cook dinner"</b><br><a href="docs/media/home-episode.mp4">▶ Watch the full episode (37 s)</a></td>
-    <td align="center" colspan="2"><b>"Asking a coworker to share notes"</b><br><a href="docs/media/office-episode.mp4">▶ Watch the full episode (42 s)</a></td>
+    <td align="center" colspan="2"><b>"Inviting a friend over to cook dinner"</b><br><a href="https://youtube.com/shorts/dADMi7Ym1k8">▶ Watch on YouTube (37 s)</a></td>
+    <td align="center" colspan="2"><b>"Asking a coworker to share notes"</b><br><a href="https://youtube.com/shorts/gjFQUuWFemA">▶ Watch on YouTube (42 s)</a></td>
   </tr>
 </table>
 
@@ -75,6 +75,12 @@ Output files (in `out/<slug>-<timestamp>/`, or the folder set with `--out`):
 | `short.mp4` | The finished Short |
 | `script.json` | Validated dialogue |
 | `metadata.json` | YouTube title, description, tags, categoryId, privacyStatus (generated, with overrides applied) |
+
+The description ends with hashtags: a fixed base set (`#Shorts #LearnKorean #LearnSpanish #Korean #Spanish
+#Mexico #MexicanSpanish #KorMex`, edit `BASE_HASHTAGS` in `src/youtube/metadata.ts`) followed by 3–5
+topic-specific hashtags that Gemini suggests in the same request as the dialogue (for example `#Tacos #Cooking`).
+Suggested hashtags lose any `#`, spaces or hyphens, and duplicates are removed. The total is capped at 15,
+because YouTube ignores every hashtag on a video that has more. They are also added to the video tags.
 | `timeline.json` | Timing for every line and section |
 | `audio/` | Per-line WAV files |
 

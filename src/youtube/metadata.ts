@@ -20,7 +20,16 @@ export const TITLE_MAX_CHARS = 100;
 export const DESCRIPTION_MAX_BYTES = 5000;
 export const EDUCATION_CATEGORY_ID = '27';
 const TITLE_SUFFIX = ' | Mexican Spanish & Korean #Shorts';
-const HASHTAGS = '#Shorts #LearnSpanish #LearnKorean #MexicanSpanish #Korean';
+/** Always included; Gemini's topic hashtags are appended. YouTube ignores all hashtags if there are more than 15. */
+export const BASE_HASHTAGS = ['Shorts', 'LearnKorean', 'LearnSpanish', 'Korean', 'Spanish', 'Mexico', 'MexicanSpanish', 'KorMex'];
+const MAX_HASHTAGS = 15;
+
+export function episodeHashtags(dialogue: Dialogue): string[] {
+  const seen = new Set<string>();
+  return [...BASE_HASHTAGS, ...(dialogue.hashtags ?? [])]
+    .filter((t) => !seen.has(t.toLowerCase()) && seen.add(t.toLowerCase()))
+    .slice(0, MAX_HASHTAGS);
+}
 const TAGS = ['Mexican Spanish', 'Korean', 'learn Spanish', 'learn Korean', 'Spanish conversation', 'Korean conversation', 'language learning', 'Shorts'];
 
 /** Strict: only the exact lowercase strings are accepted. */
@@ -114,7 +123,7 @@ function generateDescription(dialogue: Dialogue): string {
   );
   parts.push('Voices are AI-generated (Gemini TTS) and the script is AI-generated, so small mistakes are possible.');
   parts.push('');
-  parts.push(HASHTAGS);
+  parts.push(episodeHashtags(dialogue).map((t) => '#' + t).join(' '));
   return parts.join('\n');
 }
 
@@ -125,7 +134,8 @@ export function buildYouTubeMetadata(
   const privacyStatus = parsePrivacy(o.privacyStatus);
   const title = o.title?.trim() ? sanitizeTitle(o.title) : sanitizeTitle(generateTitle(dialogue.topic));
   const description = o.description?.trim() ? sanitizeDescription(o.description) : sanitizeDescription(generateDescription(dialogue));
-  return { title, description, tags: [...TAGS], categoryId: EDUCATION_CATEGORY_ID, privacyStatus };
+  const topicTags = (dialogue.hashtags ?? []).filter((t) => !TAGS.some((x) => x.toLowerCase() === t.toLowerCase()));
+  return { title, description, tags: [...TAGS, ...topicTags], categoryId: EDUCATION_CATEGORY_ID, privacyStatus };
 }
 
 /** Re-apply sanitization/limits to metadata loaded from disk (e.g. after manual edits or overrides). */

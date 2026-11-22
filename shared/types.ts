@@ -26,6 +26,8 @@ export interface Dialogue {
   /** One of SCENE_IDS from shared/scenes.ts. */
   sceneId: string;
   lines: DialogueLine[];
+  /** Topic-specific hashtags suggested by Gemini, normalized without "#" (may be empty). */
+  hashtags?: string[];
 }
 
 export interface TimelineLine {

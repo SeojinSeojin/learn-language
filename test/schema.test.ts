@@ -72,6 +72,6 @@ test('JSON schema has scene enum from SCENE_IDS and 6 fixed items', () => {
   assert.deepEqual(s.properties.sceneId.enum, [...SCENE_IDS]);
   assert.equal(s.properties.lines.minItems, 6);
   assert.equal(s.properties.lines.maxItems, 6);
-  assert.deepEqual(s.required, ['sceneId', 'lines']);
+  assert.deepEqual(s.required, ['sceneId', 'lines', 'hashtags']);
   assert.deepEqual(dialogueJsonSchema(['park']).properties.sceneId.enum, ['park']);
 });
