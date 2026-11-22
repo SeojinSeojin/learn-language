@@ -3,6 +3,25 @@
 Turns one topic (for example *"Ordering iced coffee at a café"*) into a vertical YouTube Short
 (1080×1920, 30 fps, H.264 + AAC). The Short teaches the same dialogue in **Mexican Spanish**, then in **Korean**.
 
+<p align="center">
+  <img src="docs/media/demo.gif" width="260" alt="Lupita and Jisoo talking in the home scene: a Spanish line, then the same line in Korean with a pronunciation guide">
+</p>
+
+<table align="center">
+  <tr>
+    <td align="center"><img src="docs/media/home-es.jpg" width="190" alt="Home scene, Spanish section"></td>
+    <td align="center"><img src="docs/media/home-ko.jpg" width="190" alt="Home scene, Korean section"></td>
+    <td align="center"><img src="docs/media/office-es.jpg" width="190" alt="Office scene, Spanish section"></td>
+    <td align="center"><img src="docs/media/office-ko.jpg" width="190" alt="Office scene, Korean section"></td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2"><b>"Inviting a friend over to cook dinner"</b><br><a href="docs/media/home-episode.mp4">▶ Watch the full episode (37 s)</a></td>
+    <td align="center" colspan="2"><b>"Asking a coworker to share notes"</b><br><a href="docs/media/office-episode.mp4">▶ Watch the full episode (42 s)</a></td>
+  </tr>
+</table>
+
+<p align="center"><sub>Both episodes were generated end to end from a single topic with real Gemini dialogue and speech.</sub></p>
+
 ## What it does
 
 1. **Dialogue**: Gemini returns structured JSON with a top-level `sceneId` and 6 lines alternating between the
@@ -35,6 +54,8 @@ The names appear only as subtitle labels. They are spoken only when the dialogue
 ### Scenes
 
 The scene presets are defined in `shared/scenes.ts`.
+
+![The five scene presets: cafe, park, school, office, home](docs/media/scenes.jpg)
 
 | ID | Setting |
 | --- | --- |
