@@ -1,0 +1,15 @@
+node_modules/
+dist/
+out/
+.cache/
+*.log
+
+# Secrets and credentials: never commit
+.env
+.env.*
+!.env.example
+.secrets/
+client_secret*.json
+client-secret*.json
+*token*.json
+!package*.json

@@ -1,0 +1,202 @@
+name: Generate bilingual Short
+
+on:
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: "Conversation topic (e.g. Ordering iced coffee at a café)"
+        type: string
+        required: true
+      upload:
+        description: "Upload to YouTube after generation (requires approval on the 'youtube' environment)"
+        type: boolean
+        default: false
+      visibility:
+        description: "YouTube privacy status"
+        type: choice
+        options:
+          - private
+          - unlisted
+          - public
+        default: private
+      scene:
+        description: "Scene preset (auto = Gemini picks one that fits the topic)"
+        type: choice
+        options:
+          - auto
+          - cafe
+          - park
+          - school
+          - office
+          - home
+        default: auto
+      title_override:
+        description: "Optional title override (empty = generated title)"
+        type: string
+        required: false
+        default: ""
+      description_override:
+        description: "Optional description override (empty = generated description)"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: short-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    name: Generate Short
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install ffmpeg (if missing)
+        run: command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y ffmpeg)
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps --only-shell chromium
+
+      - name: Generate Short
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          GEMINI_TTS_MODEL: ${{ vars.GEMINI_TTS_MODEL }}
+          GEMINI_TTS_RPM: ${{ vars.GEMINI_TTS_RPM }}
+          GEMINI_TTS_VOICE_LUPITA_ES: ${{ vars.GEMINI_TTS_VOICE_LUPITA_ES }}
+          GEMINI_TTS_VOICE_LUPITA_KO: ${{ vars.GEMINI_TTS_VOICE_LUPITA_KO }}
+          GEMINI_TTS_VOICE_JISOO_ES: ${{ vars.GEMINI_TTS_VOICE_JISOO_ES }}
+          GEMINI_TTS_VOICE_JISOO_KO: ${{ vars.GEMINI_TTS_VOICE_JISOO_KO }}
+          TOPIC: ${{ inputs.topic }}
+          SCENE: ${{ inputs.scene }}
+          VISIBILITY: ${{ inputs.visibility }}
+          TITLE_OVERRIDE: ${{ inputs.title_override }}
+          DESCRIPTION_OVERRIDE: ${{ inputs.description_override }}
+        run: |
+          npm run generate -- \
+            --topic="$TOPIC" \
+            --scene="$SCENE" \
+            --out=out/job \
+            --privacy="$VISIBILITY" \
+            --title="$TITLE_OVERRIDE" \
+            --description="$DESCRIPTION_OVERRIDE"
+
+      - name: Write metadata to run summary
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const m = JSON.parse(fs.readFileSync("out/job/metadata.json", "utf8"));
+            const fence = "~~~~~~~~";
+            const lines = [
+              "## Generated Short metadata",
+              "",
+              "Review before approving the `youtube` environment.",
+              "",
+              "**Title**",
+              "",
+              fence + "text",
+              String(m.title ?? ""),
+              fence,
+              "",
+              "**Visibility:** `" + String(m.privacyStatus ?? "").replace(/`/g, "") + "`",
+              "",
+              "**Tags:** " + (Array.isArray(m.tags) ? m.tags.map(String).join(", ").replace(/[<>]/g, "") : ""),
+              "",
+              "**Description**",
+              "",
+              fence + "text",
+              String(m.description ?? ""),
+              fence,
+              "",
+            ];
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join("\n") + "\n");
+          '
+
+      - name: Upload Short artifact
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: short-${{ github.run_id }}
+          path: |
+            out/job/short.mp4
+            out/job/script.json
+            out/job/metadata.json
+            out/job/timeline.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload script for debugging (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: debug-script-${{ github.run_id }}
+          path: out/job/script.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  upload:
+    name: Upload to YouTube
+    needs: generate
+    if: inputs.upload == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: youtube
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download Short artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: short-${{ github.run_id }}
+          path: out/job
+
+      - name: Upload to YouTube
+        id: youtube
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          VISIBILITY: ${{ inputs.visibility }}
+        run: |
+          npm run youtube:upload -- \
+            --video out/job/short.mp4 \
+            --metadata out/job/metadata.json \
+            --privacy="$VISIBILITY"
+
+      - name: Write upload result to run summary
+        if: success()
+        env:
+          VIDEO_URL: ${{ steps.youtube.outputs.video_url }}
+        run: |
+          if [ -n "$VIDEO_URL" ]; then
+            printf '## Uploaded\n\n%s\n' "$VIDEO_URL" >> "$GITHUB_STEP_SUMMARY"
+          fi

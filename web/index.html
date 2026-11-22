@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Short Preview</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body { margin: 0; height: 100%; background: #15110f; color: #f6efe6; font-family: system-ui, sans-serif; }
+      body.render { background: #000; overflow: hidden; }
+      #stage canvas { display: block; }
+      body.preview #wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px; box-sizing: border-box; height: 100%; }
+      body.preview #stage { flex: 1; min-height: 0; aspect-ratio: 9 / 16; }
+      body.preview #stage canvas { width: 100% !important; height: 100% !important; object-fit: contain; border-radius: 12px; }
+      #controls { display: none; gap: 10px; align-items: center; width: min(560px, 100%); }
+      body.preview #controls { display: flex; }
+      #controls input { flex: 1; }
+      button { font: inherit; padding: 6px 14px; border-radius: 8px; border: 1px solid #6e4a36; background: #2a211d; color: inherit; cursor: pointer; }
+      #error { color: #ff9a8a; white-space: pre-wrap; padding: 16px; }
+    </style>
+  </head>
+  <body>
+    <div id="wrap">
+      <div id="stage"></div>
+      <div id="controls">
+        <button id="play">Play</button>
+        <input id="seek" type="range" min="0" max="1000" value="0" aria-label="Seek" />
+        <span id="time">0.0s</span>
+      </div>
+      <div id="error"></div>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

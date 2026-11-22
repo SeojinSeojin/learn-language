@@ -1,0 +1,39 @@
+{
+  "name": "learn-language-shorts",
+  "version": "1.0.0",
+  "description": "Topic → bilingual (Mexican Spanish + Korean) vertical YouTube Short",
+  "scripts": {
+    "generate": "tsx src/cli/generate.ts",
+    "sample": "tsx src/cli/generate.ts --sample cafe --out out/sample",
+    "sample:park": "tsx src/cli/generate.ts --sample park --out out/sample-park",
+    "scenes:preview": "tsx src/cli/scenes-preview.ts",
+    "render": "tsx src/cli/render.ts",
+    "preview": "tsx src/cli/preview.ts",
+    "verify:video": "tsx src/cli/verify.ts",
+    "frames": "tsx src/cli/frames.ts",
+    "build:web": "vite build",
+    "youtube:authorize": "tsx src/cli/youtube-authorize.ts",
+    "youtube:upload": "tsx src/cli/youtube-upload.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --import tsx --test test/*.test.ts",
+    "tts:smoke": "tsx src/cli/tts-smoke.ts"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "@fontsource/noto-sans-kr": "5.3.1",
+    "pixi.js": "8.23.0",
+    "playwright": "1.65.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vite": "8.3.8"
+  },
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.19"
+  }
+}
