@@ -27,10 +27,13 @@ Turns one topic (for example *"Ordering iced coffee at a café"*) into a vertica
 1. **Dialogue**: Gemini returns structured JSON with a top-level `sceneId` and 6 lines alternating between the
    recurring characters `lupita` and `jisoo`. Each line has `speaker`, `esMX`, `ko`, `koPronunciation` and
    `gesture`. The JSON is validated with zod.
-2. **Speech**: Gemini TTS, **one request per character per language** (4 requests per episode, to fit the
-   free tier). Each request reads that character's three lines verbatim, one paragraph per line, in a fixed
-   voice. The clip is split at the pauses into one WAV per line (6 es-MX + 6 ko-KR). Each character keeps the
-   same voice in every episode.
+2. **Speech**: one WAV per line (6 es-MX + 6 ko-KR), in a fixed voice per character and language. Choose the
+   provider with `TTS_PROVIDER` (see [Speech providers](#speech-providers)):
+   - **`edge`** (default, GitHub Actions too): Microsoft Edge TTS through the Python
+     [`edge-tts`](https://github.com/rany2/edge-tts) CLI. No API key and no daily limit. One request per line,
+     sequentially; each finished line is cached.
+   - **`gemini`**: Gemini TTS, one request per character per language (4 per episode, to fit the free tier).
+     Each clip is split at the pauses into one WAV per line.
 3. **Timeline**: a shared timeline is built from the measured WAV durations.
 4. **Scene**: the two characters appear in one scene preset (see [Scenes](#scenes)). The scene is chosen once
    per episode and used for both language sections. The characters wave, nod, tilt and shrug, blink, shift
@@ -44,10 +47,10 @@ Turns one topic (for example *"Ordering iced coffee at a café"*) into a vertica
 
 Both characters are original blocky PixiJS designs. Their look and voices stay the same in every episode.
 
-| Speaker ID | Who | Subtitle label (Spanish / Korean section) | Default voice |
-| --- | --- | --- | --- |
-| `lupita` | Lupita, from Mexico | Lupita / 루피타 | Leda |
-| `jisoo` | Jisoo, from Korea | Jisoo / 지수 | Charon |
+| Speaker ID | Who | Subtitle label (Spanish / Korean section) | Edge voices (es / ko) | Gemini voice |
+| --- | --- | --- | --- | --- |
+| `lupita` | Lupita, from Mexico | Lupita / 루피타 | `es-MX-DaliaNeural` / `ko-KR-SunHiNeural` | Leda |
+| `jisoo` | Jisoo, from Korea | Jisoo / 지수 | `es-MX-JorgeNeural` / `ko-KR-InJoonNeural` | Charon |
 
 The names appear only as subtitle labels. They are spoken only when the dialogue itself uses them.
 
@@ -84,9 +87,47 @@ because YouTube ignores every hashtag on a video that has more. They are also ad
 | `timeline.json` | Timing for every line and section |
 | `audio/` | Per-line WAV files |
 
+## Speech providers
+
+| | `TTS_PROVIDER=edge` (default) | `TTS_PROVIDER=gemini` |
+| --- | --- | --- |
+| Service | Microsoft Edge read-aloud voices, via Python `edge-tts` (pinned in `requirements-tts.txt`) | Gemini TTS (`gemini-3.8-flash-lite-tts`) |
+| Key | None | `GEMINI_API_KEY` |
+| Daily limit | None published | 10 requests (about 2 videos) |
+| Requests per video | 12 (one per line, sequential) | 4 (one per character per language) |
+| Voice settings | `EDGE_TTS_VOICE_{LUPITA,JISOO}_{ES,KO}` | `GEMINI_TTS_VOICE_{LUPITA,JISOO}_{ES,KO}` |
+
+Gemini always writes the dialogue; `TTS_PROVIDER` only picks who speaks it.
+
+How the Edge provider works:
+
+- **Voice check first.** Before anything else (including the Gemini dialogue request), the configured voices are
+  checked against Edge's current voice list (`edge-tts --list-voices`) and their locale (`es-MX` / `ko-KR`).
+  A missing voice stops the run and lists the voices that are available.
+- **Per-line cache.** Each finished line is saved in `.cache/tts/edge/`, keyed by provider, voice and exact text
+  (`TTS_CACHE_DIR` changes the folder). Re-running the same job reuses those lines. In GitHub Actions the cache
+  is kept between attempts of the same run, so **Re-run failed jobs** reuses finished lines.
+- **WAV and timing.** The provider's MP3 is converted to 24 kHz mono WAV with FFmpeg and trimmed to the speech.
+  The measured WAV duration drives subtitles and animation.
+- **Failure.** A failed line is retried once, then the run stops with the provider's error message. No video is
+  rendered, and the upload job does not run.
+
+Things to know about Edge TTS:
+
+- It is an **unofficial** use of the service behind Edge's read-aloud feature. Microsoft gives no guarantee and
+  has changed its access checks before, which breaks old `edge-tts` versions (they fail with HTTP 403). If that
+  happens, raise the version in `requirements-tts.txt`, or switch to `TTS_PROVIDER=gemini`.
+- Edge has only **two es-MX voices** (Dalia, Jorge) and **three ko-KR voices** (SunHi, InJoon,
+  HyunsuMultilingual). Azure-only voices such as `es-MX-BeatrizNeural` and `ko-KR-JiMinNeural` are not available
+  and fail the voice check.
+- `edge-tts` is LGPL-3.0. It runs as a separate command and is not bundled into this project.
+
 ## Requirements
 
 - **Node.js 22** (see `.nvmrc`; `nvm use` picks it up).
+- **Python 3 with `edge-tts`** for the default speech provider: `pip install -r requirements-tts.txt` (a
+  virtualenv works too; point `EDGE_TTS_BIN` at its `edge-tts`). Not needed with `TTS_PROVIDER=gemini` or for
+  `npm run sample`.
 - **ffmpeg and ffprobe** on `PATH`. On macOS: `brew install ffmpeg`. On Ubuntu: `sudo apt-get install ffmpeg`.
   If they live somewhere else, set `FFMPEG_PATH` / `FFPROBE_PATH`.
 - **Playwright Chromium**: install with `npx playwright install chromium`. No GPU is needed. Video frames are drawn
@@ -123,12 +164,14 @@ timeline and audio, run `npm run render -- out/sample`.
 ## Local live generation
 
 ```bash
-cp .env.example .env        # then set GEMINI_API_KEY
+cp .env.example .env        # then set GEMINI_API_KEY (TTS_PROVIDER defaults to edge)
+pip install -r requirements-tts.txt   # Edge TTS (skip for TTS_PROVIDER=gemini)
 npm run tts:smoke           # one Spanish + one Korean WAV in out/tts-smoke/, to check before a full render
 npm run generate -- --topic "Ordering iced coffee at a café"
 ```
 
-`tts:smoke` accepts `--out`, `--es "..."` and `--ko "..."`.
+`tts:smoke` uses `TTS_PROVIDER`, accepts `--out`, `--es "..."` and `--ko "..."`, and never reads the TTS cache.
+With Edge it also verifies the voice ids.
 
 Options for `generate`:
 
@@ -139,7 +182,7 @@ Options for `generate`:
 | `--out out/my-job` | Output folder. Default: `out/<slug>-<timestamp>`. |
 | `--privacy private\|unlisted\|public` | `privacyStatus` written to `metadata.json` |
 | `--title "..."` / `--description "..."` | Override the generated metadata. An empty string means no override. |
-| `--resume` | With `--out` of a run that stopped on a rate limit or quota: reuse its `script.json` and finished WAVs instead of spending quota again. |
+| `--resume` | With `--out` of a run that stopped partway: reuse its `script.json` (no new dialogue request) and, with Gemini TTS, its finished WAVs. Edge lines come from the line cache either way. |
 | `--renderer canvas\|webgl`, `--concurrency N` | Rendering backend (default `canvas`) and number of parallel browser pages. |
 
 Other commands: `npm test` and `npm run typecheck`.
@@ -186,14 +229,15 @@ Set these under **Settings → Secrets and variables → Actions**.
 
 | Name | Kind | Required | Purpose |
 | --- | --- | --- | --- |
-| `GEMINI_API_KEY` | Secret | Yes | Dialogue and TTS |
+| `GEMINI_API_KEY` | Secret | Yes | Dialogue (and speech when the `tts_provider` input is `gemini`) |
 | `YOUTUBE_CLIENT_ID` | Secret | Only for upload | Desktop OAuth client ID |
 | `YOUTUBE_CLIENT_SECRET` | Secret | Only for upload | Desktop OAuth client secret |
 | `YOUTUBE_REFRESH_TOKEN` | Secret | Only for upload | From `npm run youtube:authorize` |
 | `GEMINI_MODEL` | Variable | No | Dialogue model override |
 | `GEMINI_TTS_MODEL` | Variable | No | TTS model override |
 | `GEMINI_TTS_RPM` | Variable | No | TTS requests per minute for pacing (default 3) |
-| `GEMINI_TTS_VOICE_LUPITA_ES`, `GEMINI_TTS_VOICE_LUPITA_KO`, `GEMINI_TTS_VOICE_JISOO_ES`, `GEMINI_TTS_VOICE_JISOO_KO` | Variable | No | Voice overrides |
+| `GEMINI_TTS_VOICE_LUPITA_ES`, `GEMINI_TTS_VOICE_LUPITA_KO`, `GEMINI_TTS_VOICE_JISOO_ES`, `GEMINI_TTS_VOICE_JISOO_KO` | Variable | No | Gemini voice overrides |
+| `EDGE_TTS_VOICE_LUPITA_ES`, `EDGE_TTS_VOICE_LUPITA_KO`, `EDGE_TTS_VOICE_JISOO_ES`, `EDGE_TTS_VOICE_JISOO_KO` | Variable | No | Edge voice overrides (checked against Edge's voice list) |
 
 The YouTube secrets can be repository secrets or secrets of the `youtube` environment. Environment secrets
 are only available to the approved upload job.
@@ -220,6 +264,7 @@ The MP4 artifact is stored before the upload job starts. If the upload fails, th
 2. Fill in:
    - `topic` (required)
    - `scene` (`auto` / `cafe` / `park` / `school` / `office` / `home`, default `auto`)
+   - `tts_provider` (`edge` / `gemini`, default `edge`)
    - `upload` (default off)
    - `visibility` (`private` / `unlisted` / `public`, default `private`)
    - optional `title_override` / `description_override`
@@ -235,7 +280,9 @@ The MP4 artifact is stored before the upload job starts. If the upload fails, th
 If generation fails, a `debug-script-<run id>` artifact holds `script.json` when the dialogue step got that far.
 
 The generate job runs on a standard `ubuntu-24.04` runner with no GPU. It installs ffmpeg and Playwright
-Chromium (`--with-deps --only-shell`) itself.
+Chromium (`--with-deps --only-shell`) itself. With `tts_provider: edge` it also sets up Python, installs
+`requirements-tts.txt`, and runs an **Edge TTS smoke test** (voice check plus one Spanish and one Korean line)
+before generating, so a broken provider fails fast and costs no Gemini request.
 
 ## First-time YouTube authorization
 
@@ -288,21 +335,29 @@ How the upload command behaves:
 
 ## How many videos per day?
 
-About **2 videos per day** on the free tier. Gemini text-to-speech is the limit.
+It depends on the speech provider:
+
+- **`TTS_PROVIDER=edge` (default):** no published daily limit for speech. In practice the limits are the Gemini
+  dialogue quota and YouTube uploads (**about 6 uploads per day**). Generating without uploading is not capped by
+  either. Be reasonable with volume: the Edge service is unofficial and may throttle heavy use.
+- **`TTS_PROVIDER=gemini`:** about **2 videos per day**. Gemini text-to-speech is the limit.
 
 | Limit | Daily cap | Per video | Videos per day |
 | --- | --- | --- | --- |
-| **Gemini TTS** (`gemini-3.8-flash-lite-tts`) | 10 requests (and 3 per minute) | 4 requests | **2** |
+| Edge TTS | none published | 12 requests (cached lines are free) | not the bottleneck |
+| **Gemini TTS** (`gemini-3.8-flash-lite-tts`), only with `TTS_PROVIDER=gemini` | 10 requests (and 3 per minute) | 4 requests | **2** |
 | Gemini dialogue (`gemini-3.6-flash`) | much higher | 1–2 requests | not the bottleneck |
 | YouTube upload API | 10,000 units by default | ~1,600 units per upload | about 6 |
-| GitHub Actions | free on public repos; 2,000 min/month on private | ~5 min | not the bottleneck |
+| GitHub Actions | free on public repos; 2,000 min/month on private | ~5–7 min | not the bottleneck |
+
+With Gemini TTS:
 
 - **Reset time:** the Gemini daily quota resets at midnight Pacific time (3 AM EST).
 - **Spare requests:** two videos use 8 of the 10 TTS requests, which leaves 2 for recovery. If a local run stops
   partway, re-run it with `--resume` and the same `--out` folder to reuse the audio already made.
 - **Re-rendering is free:** `npm run render` and `npm run sample` make no Gemini requests.
-- **More than 2 a day:** point `GEMINI_TTS_MODEL` at another TTS model (each model has its own free quota), or
-  enable billing on the Gemini project. Billing is no longer free, so the pipeline never does it on its own.
+- **More than 2 a day:** use `TTS_PROVIDER=edge`, point `GEMINI_TTS_MODEL` at another TTS model (each model has
+  its own free quota), or enable billing on the Gemini project. Billing is no longer free, so the pipeline never does it on its own.
 
 Free-tier limits are set by Google and can change. Check your current limits at
 [aistudio.google.com/rate-limit](https://aistudio.google.com/rate-limit).
@@ -342,6 +397,11 @@ Each `videos.insert` call costs a large share of it; see Google's
   needed (Ubuntu runners included). Run `npm ci` again if `node_modules` is incomplete.
 - **Playwright cannot find a browser:** run `npx playwright install chromium`. On Linux, use
   `npx playwright install --with-deps chromium`.
+- **Edge TTS fails with HTTP 403 or `WSServerHandshakeError`:** Microsoft changed the service's access check.
+  Raise the `edge-tts` version in `requirements-tts.txt` (check [PyPI](https://pypi.org/project/edge-tts/)), or
+  run with `TTS_PROVIDER=gemini` meanwhile.
+- **`edge-tts command not found`:** run `pip install -r requirements-tts.txt`, or set `EDGE_TTS_BIN` to the
+  `edge-tts` inside your virtualenv.
 - **Exit code 3:** see [Quotas and failure behavior](#quotas-and-failure-behavior).
 - **Refresh token stopped working after a week:** the OAuth consent screen is still in Testing mode. See
   [First-time YouTube authorization](#first-time-youtube-authorization).
@@ -352,7 +412,7 @@ Each `videos.insert` call costs a large share of it; see Google's
 src/cli/        Command entry points (generate, render, preview, verify, frames, tts:smoke, scenes:preview, youtube:*)
 src/dialogue/   Dialogue prompt, schema and validation
 src/gemini/     Gemini API client (structured output, quota/error handling)
-src/tts/        Gemini TTS (4 batched requests) → per-line WAVs; local test voice for sample mode
+src/tts/        Edge TTS (per line, cached) or Gemini TTS (4 batched requests) → per-line WAVs; local test voice for sample mode
 src/audio/      WAV parsing/writing, pause-based line splitting
 src/timeline/   Shared timeline from measured audio durations
 src/render/     Playwright frame capture, FFmpeg encoding, ffprobe verification
@@ -367,7 +427,8 @@ test/           Unit tests (npm test)
 
 Checked on 2026-11-22 (macOS, Node 22, Playwright Chromium headless shell, FFmpeg 6.1):
 
-- `npm test`: 46 tests pass (schema, Gemini client with mocked HTTP, batched TTS + pause splitting, timeline,
+- `npm test`: 53 tests pass (schema, Gemini client with mocked HTTP, batched TTS + pause splitting, Edge voice
+  check / line cache / failure handling with a mocked CLI, timeline,
   scene registry, YouTube metadata/OAuth/upload with mocked HTTP and a local loopback server). `npm run typecheck` is clean.
 - `npm run sample` (café) and `npm run sample:park`: full 41 s / 40 s renders. ffprobe confirmed 1080×1920,
   30 fps, H.264 yuv420p, AAC 48 kHz, and duration and frame count matching the timeline. Frames from both
@@ -380,10 +441,13 @@ Checked on 2026-11-22 (macOS, Node 22, Playwright Chromium headless shell, FFmpe
   - A full `--scene home` episode: 1 dialogue request + 4 TTS requests → per-line WAVs → render → ffprobe OK.
   - A `--scene auto` episode (Gemini chose `office`), finished with `--resume` after hitting the daily TTS limit.
   - The free-tier limits seen from the API: 3 TTS requests/min, 10/day.
+- Edge TTS with `edge-tts` 7.3.1: the voice check found all four default voices; `tts:smoke` produced a Spanish
+  (Dalia, 3.6 s) and a Korean (InJoon, 3.8 s) WAV; a full home episode (the saved script, 12 Edge lines in about
+  14 s) rendered and passed every ffprobe check.
 - The browser bundle and all outputs were searched for the API key (none found). The preview server returns
   404 for `.env`, `script.json` and path traversal attempts.
 - `youtube:upload --dry-run` printed the request; a visibility mismatch was refused before any network call.
 
-Not verified here: the GitHub Actions run itself on `ubuntu-24.04`, which needs the repo pushed with secrets
-set (rendering uses PixiJS's CPU Canvas renderer, so no GPU is involved). Also not verified: OAuth authorization
+GitHub Actions: Gemini-TTS runs have succeeded on `ubuntu-24.04`. The Edge steps (Python setup, smoke test,
+line cache) have not run on GitHub yet. Also not verified: OAuth authorization
 and a real YouTube upload, which need your Google OAuth client. Nothing was uploaded to YouTube.

@@ -38,3 +38,13 @@ export function parseArgs(argv = process.argv.slice(2)) {
   }
   return out;
 }
+
+export const TTS_PROVIDERS = ['edge', 'gemini'] as const;
+export type TtsProvider = (typeof TTS_PROVIDERS)[number];
+
+/** TTS_PROVIDER: "edge" (default, no API key) or "gemini". */
+export function ttsProvider(value = optionalEnv('TTS_PROVIDER')): TtsProvider {
+  const v = (value ?? 'edge').trim().toLowerCase();
+  if ((TTS_PROVIDERS as readonly string[]).includes(v)) return v as TtsProvider;
+  throw new UserFacingError(`TTS_PROVIDER must be one of: ${TTS_PROVIDERS.join(', ')} (got "${value}")`);
+}

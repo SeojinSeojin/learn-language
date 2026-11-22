@@ -30,6 +30,13 @@ on:
           - office
           - home
         default: auto
+      tts_provider:
+        description: "Speech provider (edge = Microsoft Edge TTS, no key or daily limit; gemini = Gemini TTS, 2 videos/day free)"
+        type: choice
+        options:
+          - edge
+          - gemini
+        default: edge
       title_override:
         description: "Optional title override (empty = generated title)"
         type: string
@@ -74,6 +81,38 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps --only-shell chromium
 
+      - name: Set up Python (Edge TTS)
+        if: inputs.tts_provider == 'edge'
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-tts.txt
+
+      - name: Install edge-tts
+        if: inputs.tts_provider == 'edge'
+        run: pip install -r requirements-tts.txt
+
+      # Per-line TTS cache (provider + voice + exact text). Restored from earlier attempts of this same run,
+      # so "Re-run failed jobs" reuses the lines that already succeeded.
+      - name: Restore TTS line cache
+        if: inputs.tts_provider == 'edge'
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/tts
+          key: tts-edge-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: tts-edge-${{ github.run_id }}-
+
+      - name: Edge TTS smoke test (one Spanish + one Korean line)
+        if: inputs.tts_provider == 'edge'
+        env:
+          TTS_PROVIDER: edge
+          EDGE_TTS_VOICE_LUPITA_ES: ${{ vars.EDGE_TTS_VOICE_LUPITA_ES }}
+          EDGE_TTS_VOICE_LUPITA_KO: ${{ vars.EDGE_TTS_VOICE_LUPITA_KO }}
+          EDGE_TTS_VOICE_JISOO_ES: ${{ vars.EDGE_TTS_VOICE_JISOO_ES }}
+          EDGE_TTS_VOICE_JISOO_KO: ${{ vars.EDGE_TTS_VOICE_JISOO_KO }}
+        run: npm run tts:smoke -- --out=out/tts-smoke
+
       - name: Generate Short
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -84,6 +123,11 @@ jobs:
           GEMINI_TTS_VOICE_LUPITA_KO: ${{ vars.GEMINI_TTS_VOICE_LUPITA_KO }}
           GEMINI_TTS_VOICE_JISOO_ES: ${{ vars.GEMINI_TTS_VOICE_JISOO_ES }}
           GEMINI_TTS_VOICE_JISOO_KO: ${{ vars.GEMINI_TTS_VOICE_JISOO_KO }}
+          TTS_PROVIDER: ${{ inputs.tts_provider }}
+          EDGE_TTS_VOICE_LUPITA_ES: ${{ vars.EDGE_TTS_VOICE_LUPITA_ES }}
+          EDGE_TTS_VOICE_LUPITA_KO: ${{ vars.EDGE_TTS_VOICE_LUPITA_KO }}
+          EDGE_TTS_VOICE_JISOO_ES: ${{ vars.EDGE_TTS_VOICE_JISOO_ES }}
+          EDGE_TTS_VOICE_JISOO_KO: ${{ vars.EDGE_TTS_VOICE_JISOO_KO }}
           TOPIC: ${{ inputs.topic }}
           SCENE: ${{ inputs.scene }}
           VISIBILITY: ${{ inputs.visibility }}
@@ -97,6 +141,13 @@ jobs:
             --privacy="$VISIBILITY" \
             --title="$TITLE_OVERRIDE" \
             --description="$DESCRIPTION_OVERRIDE"
+
+      - name: Save TTS line cache
+        if: always() && inputs.tts_provider == 'edge'
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/tts
+          key: tts-edge-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Write metadata to run summary
         run: |

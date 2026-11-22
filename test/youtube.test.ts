@@ -42,7 +42,7 @@ test('description has character labels, Hangul, ≈ hints, approximate note, AI 
   assert.match(m.description, /지수:/);
   assert.match(m.description, /Scene: Café/);
   assert.match(m.description, /approximate/i);
-  assert.match(m.description, /AI-generated \(Gemini TTS\)/);
+  assert.match(m.description, /AI-generated \(Gemini TTS\) and the script is AI-generated \(Gemini\)/);
   assert.match(m.description, /#Shorts #LearnKorean #LearnSpanish #Korean #Spanish #Mexico #MexicanSpanish #KorMex #IcedCoffee #Cafe #OrderingCoffee$/);
   assert.ok(m.tags.includes('IcedCoffee'));
   assert.ok(Buffer.byteLength(m.description) <= 5000);

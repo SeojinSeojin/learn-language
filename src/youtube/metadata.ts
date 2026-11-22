@@ -95,7 +95,7 @@ function generateTitle(topic: string): string {
   return t + TITLE_SUFFIX;
 }
 
-function generateDescription(dialogue: Dialogue): string {
+function generateDescription(dialogue: Dialogue, ttsProvider: 'edge' | 'gemini' | undefined): string {
   const topic = dialogue.topic.trim();
   const parts: string[] = [];
   parts.push(`Learn a short everyday conversation in Mexican Spanish 🇲🇽 and Korean 🇰🇷: ${topic}.`);
@@ -121,7 +121,8 @@ function generateDescription(dialogue: Dialogue): string {
   parts.push(
     'Note: the "≈" pronunciation hints are approximate, English-friendly guides to the Korean — not exact. Listen to the audio for real pronunciation.',
   );
-  parts.push('Voices are AI-generated (Gemini TTS) and the script is AI-generated, so small mistakes are possible.');
+  const voices = ttsProvider === 'edge' ? 'Microsoft Edge TTS' : 'Gemini TTS';
+  parts.push(`Voices are AI-generated (${voices}) and the script is AI-generated (Gemini), so small mistakes are possible.`);
   parts.push('');
   parts.push(episodeHashtags(dialogue).map((t) => '#' + t).join(' '));
   return parts.join('\n');
@@ -129,11 +130,11 @@ function generateDescription(dialogue: Dialogue): string {
 
 export function buildYouTubeMetadata(
   dialogue: Dialogue,
-  o: { title?: string; description?: string; privacyStatus: PrivacyStatus },
+  o: { title?: string; description?: string; privacyStatus: PrivacyStatus; ttsProvider?: 'edge' | 'gemini' },
 ): YouTubeMetadata {
   const privacyStatus = parsePrivacy(o.privacyStatus);
   const title = o.title?.trim() ? sanitizeTitle(o.title) : sanitizeTitle(generateTitle(dialogue.topic));
-  const description = o.description?.trim() ? sanitizeDescription(o.description) : sanitizeDescription(generateDescription(dialogue));
+  const description = o.description?.trim() ? sanitizeDescription(o.description) : sanitizeDescription(generateDescription(dialogue, o.ttsProvider));
   const topicTags = (dialogue.hashtags ?? []).filter((t) => !TAGS.some((x) => x.toLowerCase() === t.toLowerCase()));
   return { title, description, tags: [...TAGS, ...topicTags], categoryId: EDUCATION_CATEGORY_ID, privacyStatus };
 }

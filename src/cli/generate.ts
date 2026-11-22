@@ -10,10 +10,11 @@ import { SAMPLES } from '../dialogue/sample';
 import { validateDialogue } from '../dialogue/schema';
 import { generateDialogue } from '../dialogue/gemini';
 import { synthesizeDialogue } from '../tts/gemini-tts';
+import { resolveEdgeVoices, synthesizeDialogueEdge, verifyEdgeVoices } from '../tts/edge-tts';
 import { buildYouTubeMetadata, formatMetadataForReview, parsePrivacy } from '../youtube/metadata';
 import { assertRenderableScene, log, renderAndVerify, writeTestAudio, writeTimeline } from '../pipeline';
 import { checkFfmpeg } from '../render/ffmpeg';
-import { DEFAULT_GEMINI_MODEL, DEFAULT_GEMINI_TTS_MODEL, optionalEnv, parseArgs, requireEnv } from '../util/env';
+import { DEFAULT_GEMINI_MODEL, DEFAULT_GEMINI_TTS_MODEL, optionalEnv, parseArgs, requireEnv, ttsProvider } from '../util/env';
 import { runCli, UserFacingError } from '../util/errors';
 
 const str = (v: string | boolean | undefined) => (typeof v === 'string' ? v.trim() : '');
@@ -32,6 +33,7 @@ runCli(async () => {
     throw new UserFacingError(`--scene must be auto or one of: ${SCENE_IDS.join(', ')} (got "${sceneArg}")`);
   }
   const scene = sceneArg as SceneId | 'auto';
+  const provider = sample ? undefined : ttsProvider();
 
   let dialogue: Dialogue;
   let jobDir: string;
@@ -56,6 +58,14 @@ runCli(async () => {
     checkFfmpeg();
     const model = optionalEnv('GEMINI_MODEL') ?? DEFAULT_GEMINI_MODEL;
     const ttsModel = optionalEnv('GEMINI_TTS_MODEL') ?? DEFAULT_GEMINI_TTS_MODEL;
+    const edgeVoices = provider === 'edge' ? resolveEdgeVoices() : undefined;
+    if (edgeVoices) {
+      // Check the voice ids against Edge's current list before spending any Gemini quota.
+      await verifyEdgeVoices(edgeVoices);
+      log(`TTS provider: edge (voices verified: ${Object.entries(edgeVoices).map(([s, v]) => `${s} ${v.es}/${v.ko}`).join(', ')})`);
+    } else {
+      log(`TTS provider: gemini (${ttsModel})`);
+    }
     jobDir = resolve(str(args.out) || `out/${slug(topic)}-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`);
     mkdirSync(jobDir, { recursive: true });
 
@@ -77,15 +87,20 @@ runCli(async () => {
     dialogue = validateDialogue(dialogue, topic, scene === 'auto' ? {} : { requiredScene: scene });
     assertRenderableScene(dialogue.sceneId);
 
-    log(`Synthesizing 12 lines with ${ttsModel}`);
-    audioPaths = await synthesizeDialogue(dialogue, jobDir, { apiKey, model: ttsModel, reuseExisting: resume });
+    if (edgeVoices) {
+      log('Synthesizing 12 lines with Edge TTS (sequential, cached per line)');
+      audioPaths = await synthesizeDialogueEdge(dialogue, jobDir, { voices: edgeVoices, voicesVerified: true });
+    } else {
+      log(`Synthesizing 12 lines with ${ttsModel}`);
+      audioPaths = await synthesizeDialogue(dialogue, jobDir, { apiKey, model: ttsModel, reuseExisting: resume });
+    }
   }
   assertRenderableScene(dialogue.sceneId);
 
   const timeline = writeTimeline(dialogue, jobDir, audioPaths);
   log(`Timeline: ${timeline.duration.toFixed(2)} s, ${timeline.frameCount} frames, scene "${timeline.sceneId}"`);
 
-  const metadata = buildYouTubeMetadata(dialogue, { title: str(args.title), description: str(args.description), privacyStatus: privacy });
+  const metadata = buildYouTubeMetadata(dialogue, { title: str(args.title), description: str(args.description), privacyStatus: privacy, ttsProvider: provider });
   writeFileSync(join(jobDir, 'metadata.json'), JSON.stringify(metadata, null, 2));
 
   const concurrency = args.concurrency ? Number(args.concurrency) : undefined;
