@@ -49,10 +49,14 @@ Both characters are original blocky PixiJS designs. Their look and voices stay t
 
 | Speaker ID | Who | Subtitle label (Spanish / Korean section) | Edge voices (es / ko) | Gemini voice |
 | --- | --- | --- | --- | --- |
-| `lupita` | Lupita, from Mexico | Lupita / 루피타 | `es-MX-DaliaNeural` / `ko-KR-SunHiNeural` | Leda |
-| `jisoo` | Jisoo, from Korea | Jisoo / 지수 | `es-MX-JorgeNeural` / `ko-KR-InJoonNeural` | Charon |
+| `lupita` | Lupita, a woman from Mexico | Lupita / 루피타 | `es-MX-DaliaNeural` / `ko-KR-SunHiNeural` | Leda |
+| `jisoo` | Jisoo, a man from Korea | Jisoo / 지수 | `es-MX-JorgeNeural` / `ko-KR-InJoonNeural` | Charon |
 
 The names appear only as subtitle labels. They are spoken only when the dialogue itself uses them.
+
+Gemini is told their genders so the Spanish matches the voices (for example `cansada` for Lupita, `cansado`
+for Jisoo, `juntos` for both). If you override the voices with `EDGE_TTS_VOICE_*` or `GEMINI_TTS_VOICE_*`, keep
+Lupita's voices female and Jisoo's male, or change the character descriptions in `src/dialogue/gemini.ts`.
 
 ### Scenes
 

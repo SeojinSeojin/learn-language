@@ -97,7 +97,7 @@ jobs:
       # so "Re-run failed jobs" reuses the lines that already succeeded.
       - name: Restore TTS line cache
         if: inputs.tts_provider == 'edge'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .cache/tts
           key: tts-edge-${{ github.run_id }}-${{ github.run_attempt }}
@@ -144,7 +144,7 @@ jobs:
 
       - name: Save TTS line cache
         if: always() && inputs.tts_provider == 'edge'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .cache/tts
           key: tts-edge-${{ github.run_id }}-${{ github.run_attempt }}
