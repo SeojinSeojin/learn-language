@@ -83,3 +83,27 @@ test('workflow scene choices match the registry', () => {
   const opts = [...block.matchAll(/- (\w+)/g)].map((m) => m[1]);
   assert.deepEqual(opts, ['auto', ...SCENE_IDS]);
 });
+
+test('opening jingle: mixed under the intro only, silent before the first line, can be turned off', async () => {
+  const { synthJingle, JINGLE_SECONDS } = await import('../src/audio/jingle');
+  const { buildTimeline } = await import('../src/timeline/build');
+  const { synthTestSpeech } = await import('../src/tts/test-audio');
+  const { SAMPLE_DIALOGUE } = await import('../src/dialogue/sample');
+  const j = synthJingle(24000);
+  const peak = j.samples.reduce((m, s) => Math.max(m, Math.abs(s)), 0);
+  assert.ok(Math.abs(peak - 0.5) < 1e-6);
+  assert.equal(Math.abs(j.samples[j.samples.length - 1]), 0);
+  const audio = {
+    es: SAMPLE_DIALOGUE.lines.map((l) => synthTestSpeech(l.esMX, 'es', l.speaker)),
+    ko: SAMPLE_DIALOGUE.lines.map((l) => synthTestSpeech(l.ko, 'ko', l.speaker)),
+  };
+  const on = buildTimeline(SAMPLE_DIALOGUE, audio);
+  const off = buildTimeline(SAMPLE_DIALOGUE, audio, { music: false });
+  assert.ok(JINGLE_SECONDS < on.timeline.lines[0].start);
+  const energy = (a: Float32Array, from: number, to: number) => a.slice(from * 24000, to * 24000).reduce((s, x) => s + x * x, 0);
+  assert.ok(energy(on.master.samples, 0, 1) > 1);
+  assert.equal(energy(off.master.samples, 0, 1), 0);
+  // Identical after the jingle: speech timing is unchanged.
+  assert.equal(on.timeline.duration, off.timeline.duration);
+  assert.equal(energy(on.master.samples, 2, 10), energy(off.master.samples, 2, 10));
+});

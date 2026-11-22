@@ -2,6 +2,7 @@
 // and mixes the matching master audio track.
 import type { Dialogue, Lang, Timeline, TimelineCard, TimelineLine } from '../../shared/types';
 import { durationOf, resample, type PcmAudio } from '../audio/wav';
+import { synthJingle } from '../audio/jingle';
 
 export const FPS = 30;
 export const WIDTH = 1080;
@@ -52,7 +53,7 @@ export interface BuiltTimeline {
   master: PcmAudio;
 }
 
-export function buildTimeline(dialogue: Dialogue, audio: { es: PcmAudio[]; ko: PcmAudio[] }): BuiltTimeline {
+export function buildTimeline(dialogue: Dialogue, audio: { es: PcmAudio[]; ko: PcmAudio[] }, opts: { music?: boolean } = {}): BuiltTimeline {
   if (audio.es.length !== 6 || audio.ko.length !== 6) throw new Error('Expected 6 Spanish and 6 Korean audio clips');
   const rate = audio.es[0].sampleRate;
   const clips = { es: audio.es.map((a) => resample(a, rate)), ko: audio.ko.map((a) => resample(a, rate)) };
@@ -100,6 +101,11 @@ export function buildTimeline(dialogue: Dialogue, audio: { es: PcmAudio[]; ko: P
   const switchMid = round(esEnd + SWITCH / 2);
 
   const master = new Float32Array(Math.round(duration * rate));
+  if (opts.music !== false) {
+    // Opening jingle under the intro card; it ends before the first line (JINGLE_SECONDS < INTRO + LEAD_IN).
+    const jingle = synthJingle(rate).samples;
+    for (let i = 0; i < jingle.length && i < master.length; i++) master[i] += jingle[i];
+  }
   for (const p of placed) {
     const off = Math.round(p.start * rate);
     for (let i = 0; i < p.audio.samples.length && off + i < master.length; i++) master[off + i] += p.audio.samples[i];

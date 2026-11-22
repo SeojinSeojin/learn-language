@@ -34,7 +34,9 @@ Turns one topic (for example *"Ordering iced coffee at a café"*) into a vertica
      sequentially; each finished line is cached.
    - **`gemini`**: Gemini TTS, one request per character per language (4 per episode, to fit the free tier).
      Each clip is split at the pauses into one WAV per line.
-3. **Timeline**: a shared timeline is built from the measured WAV durations.
+3. **Timeline**: a shared timeline is built from the measured WAV durations. A short, bright opening jingle
+   (an original marimba-style arpeggio synthesized in code, `src/audio/jingle.ts`) plays under the title card
+   and fades out before the first line. Set `OPENING_MUSIC=off` to leave it out.
 4. **Scene**: the two characters appear in one scene preset (see [Scenes](#scenes)). The scene is chosen once
    per episode and used for both language sections. The characters wave, nod, tilt and shrug, blink, shift
    their gaze, and move their mouths with the audio amplitude.
