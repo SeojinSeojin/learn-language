@@ -1,3 +1,5 @@
+import { appendFileSync } from 'node:fs';
+
 /** An error whose message is safe and useful to show the user as-is (no stack needed). */
 export class UserFacingError extends Error {
   constructor(message: string, readonly hint?: string) {
@@ -23,6 +25,9 @@ export async function runCli(main: () => Promise<void>) {
       console.error(`\n✖ ${err.message}`);
       if (err.hint) console.error(`  → ${err.hint}`);
       if (process.env.GITHUB_ACTIONS) console.log(`::error title=${err.name}::${err.message.replace(/\r?\n/g, ' ')}`);
+      if (err instanceof QuotaExhaustedError && process.env.GITHUB_OUTPUT) {
+        appendFileSync(process.env.GITHUB_OUTPUT, 'provider_quota=true\n');
+      }
       process.exit(err instanceof QuotaExhaustedError ? 3 : 2);
     }
     console.error(err);

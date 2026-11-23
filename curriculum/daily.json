@@ -1,0 +1,156 @@
+[
+  {
+    "theme": "Greetings at a neighborhood park",
+    "episodes": [
+      {"id": "d01-dialogue-1", "mode": "dialogue", "topic": "Lupita greets Jisoo at the park gate in the morning: buenos días, hola and a short reply to ¿cómo estás?"},
+      {"id": "d01-dialogue-2", "mode": "dialogue", "topic": "Jisoo recognizes Lupita by the park fountain in the afternoon and says buenas tardes before asking how she is."},
+      {"id": "d01-dialogue-3", "mode": "dialogue", "topic": "Lupita and Jisoo say hasta mañana as they leave the park, using the bench as tomorrow's meeting point."},
+      {"id": "d01-vocab-1", "mode": "vocab", "topic": "Everyday things at the park entrance, featuring la entrada."},
+      {"id": "d01-vocab-2", "mode": "vocab", "topic": "Visible landmarks around the park fountain, featuring la fuente."},
+      {"id": "d01-vocab-3", "mode": "vocab", "topic": "Things beside a park path where friends say goodbye, featuring la banca."}
+    ]
+  },
+  {
+    "theme": "Meeting someone new",
+    "episodes": [
+      {"id": "d02-dialogue-1", "mode": "dialogue", "topic": "At a language meetup, Lupita and Jisoo read their name tags and introduce themselves with me llamo and mucho gusto."},
+      {"id": "d02-dialogue-2", "mode": "dialogue", "topic": "Lupita and Jisoo set down their backpacks and ask ¿de dónde eres? They are from Mexico and Korea."},
+      {"id": "d02-dialogue-3", "mode": "dialogue", "topic": "At a language class, Lupita asks what Jisoo studies and he shows her his book for learning Spanish."},
+      {"id": "d02-vocab-1", "mode": "vocab", "topic": "Objects at a language meetup check-in table, featuring la etiqueta con el nombre."},
+      {"id": "d02-vocab-2", "mode": "vocab", "topic": "Familiar objects in a language classroom, featuring el libro."},
+      {"id": "d02-vocab-3", "mode": "vocab", "topic": "Items learners carry to their first class, featuring la mochila."}
+    ]
+  },
+  {
+    "theme": "Asking for repetition",
+    "episodes": [
+      {"id": "d03-dialogue-1", "mode": "dialogue", "topic": "Jisoo misses Lupita's question about his notebook and asks ¿puedes repetir? before giving a short answer."},
+      {"id": "d03-dialogue-2", "mode": "dialogue", "topic": "Lupita asks Jisoo to say a word more slowly while listening through headphones, then repeats it back."},
+      {"id": "d03-dialogue-3", "mode": "dialogue", "topic": "Jisoo points to a whiteboard and asks Lupita what a written word means; she gives him the translation."},
+      {"id": "d03-vocab-1", "mode": "vocab", "topic": "Items on a desk for writing down a repeated word, featuring el cuaderno."},
+      {"id": "d03-vocab-2", "mode": "vocab", "topic": "Things used to listen to a recorded phrase, featuring los audífonos."},
+      {"id": "d03-vocab-3", "mode": "vocab", "topic": "Things beside a classroom whiteboard, featuring el pizarrón."}
+    ]
+  },
+  {
+    "theme": "Ordering at a café",
+    "episodes": [
+      {"id": "d04-dialogue-1", "mode": "dialogue", "topic": "Jisoo orders an iced coffee from Lupita using quisiera and answers a simple question about the size."},
+      {"id": "d04-dialogue-2", "mode": "dialogue", "topic": "Lupita asks whether the café has oat milk; Jisoo offers regular milk as the alternative."},
+      {"id": "d04-dialogue-3", "mode": "dialogue", "topic": "Jisoo orders a slice of cake, and Lupita asks if it is para aquí or para llevar."},
+      {"id": "d04-vocab-1", "mode": "vocab", "topic": "Drinks and visible ingredients at a Mexican café, featuring el café con hielo."},
+      {"id": "d04-vocab-2", "mode": "vocab", "topic": "Milk options and containers on a café counter, featuring la leche de avena."},
+      {"id": "d04-vocab-3", "mode": "vocab", "topic": "Café desserts and takeaway containers, featuring el pastel."}
+    ]
+  },
+  {
+    "theme": "Prices and paying",
+    "episodes": [
+      {"id": "d05-dialogue-1", "mode": "dialogue", "topic": "At a fruit stall, Lupita asks ¿cuánto cuesta el kilo? and Jisoo gives a simple price in pesos."},
+      {"id": "d05-dialogue-2", "mode": "dialogue", "topic": "Jisoo asks if he can pay by card for a hat, and Lupita says the market stall only takes cash."},
+      {"id": "d05-dialogue-3", "mode": "dialogue", "topic": "Lupita pays for a woven bag with a bill and Jisoo gives her the change and receipt."},
+      {"id": "d05-vocab-1", "mode": "vocab", "topic": "Fruit stall items used to weigh and price an order, featuring la báscula."},
+      {"id": "d05-vocab-2", "mode": "vocab", "topic": "Physical payment items at a market stall, featuring la tarjeta."},
+      {"id": "d05-vocab-3", "mode": "vocab", "topic": "Things handed over after a purchase, featuring el recibo."}
+    ]
+  },
+  {
+    "theme": "Finding your way on foot",
+    "episodes": [
+      {"id": "d06-dialogue-1", "mode": "dialogue", "topic": "Jisoo asks Lupita where the pharmacy is; go straight for one block and stop at the traffic light."},
+      {"id": "d06-dialogue-2", "mode": "dialogue", "topic": "Lupita asks Jisoo how to get to the bakery; turn left at the corner and look for the sign."},
+      {"id": "d06-dialogue-3", "mode": "dialogue", "topic": "Jisoo checks whether the entrance to the library is next to the newspaper stand or across the street."},
+      {"id": "d06-vocab-1", "mode": "vocab", "topic": "Street crossing landmarks used when giving directions, featuring el semáforo."},
+      {"id": "d06-vocab-2", "mode": "vocab", "topic": "Storefront and street-corner landmarks, featuring el letrero."},
+      {"id": "d06-vocab-3", "mode": "vocab", "topic": "Landmarks near a public library entrance, featuring el puesto de periódicos."}
+    ]
+  },
+  {
+    "theme": "Making simple plans",
+    "episodes": [
+      {"id": "d07-dialogue-1", "mode": "dialogue", "topic": "Lupita invites Jisoo to a picnic on Saturday and proposes a meeting time using a las."},
+      {"id": "d07-dialogue-2", "mode": "dialogue", "topic": "Jisoo cannot go to the movies on Friday; he suggests Sunday instead and Lupita agrees."},
+      {"id": "d07-dialogue-3", "mode": "dialogue", "topic": "Lupita checks the hours on a museum poster and agrees with Jisoo to meet by the ticket window."},
+      {"id": "d07-vocab-1", "mode": "vocab", "topic": "Things to pack for a Saturday picnic, featuring la canasta."},
+      {"id": "d07-vocab-2", "mode": "vocab", "topic": "Things seen at a movie theater outing, featuring el boleto de cine."},
+      {"id": "d07-vocab-3", "mode": "vocab", "topic": "Visible objects near a museum visit entrance, featuring la taquilla."}
+    ]
+  },
+  {
+    "theme": "Taking the bus",
+    "episodes": [
+      {"id": "d08-dialogue-1", "mode": "dialogue", "topic": "Jisoo asks Lupita if the bus at this stop goes to el centro and learns which route number to take."},
+      {"id": "d08-dialogue-2", "mode": "dialogue", "topic": "On the bus, Lupita asks Jisoo where they get off and confirms it is the stop after the bridge."},
+      {"id": "d08-dialogue-3", "mode": "dialogue", "topic": "At a station kiosk, Jisoo asks Lupita how much to load onto a transit card for two rides."},
+      {"id": "d08-vocab-1", "mode": "vocab", "topic": "What riders see at a city bus stop, featuring la parada."},
+      {"id": "d08-vocab-2", "mode": "vocab", "topic": "Objects inside a city bus, featuring el botón de parada."},
+      {"id": "d08-vocab-3", "mode": "vocab", "topic": "Items used at a transit station kiosk, featuring la tarjeta de transporte."}
+    ]
+  },
+  {
+    "theme": "Shopping for clothes",
+    "episodes": [
+      {"id": "d09-dialogue-1", "mode": "dialogue", "topic": "Lupita likes a shirt but needs a different size; Jisoo looks for a medium in the same color."},
+      {"id": "d09-dialogue-2", "mode": "dialogue", "topic": "Jisoo asks where the fitting room is and tells Lupita the pants fit but are too long."},
+      {"id": "d09-dialogue-3", "mode": "dialogue", "topic": "Lupita returns a jacket with the tag attached and asks Jisoo if she can exchange it for a lighter one."},
+      {"id": "d09-vocab-1", "mode": "vocab", "topic": "Common everyday shirts and tops on a clothing rack, featuring la playera."},
+      {"id": "d09-vocab-2", "mode": "vocab", "topic": "Clothes and fixtures around a fitting room, featuring el espejo."},
+      {"id": "d09-vocab-3", "mode": "vocab", "topic": "Items used to exchange a garment, featuring la etiqueta de precio."}
+    ]
+  },
+  {
+    "theme": "Preparing a meal together",
+    "episodes": [
+      {"id": "d10-dialogue-1", "mode": "dialogue", "topic": "Jisoo asks Lupita which vegetables to buy for salsa and checks how many tomatoes they need."},
+      {"id": "d10-dialogue-2", "mode": "dialogue", "topic": "Lupita asks Jisoo to wash the vegetables while she gets a cutting board and knife."},
+      {"id": "d10-dialogue-3", "mode": "dialogue", "topic": "Jisoo tastes the salsa and asks if it needs more lime; Lupita suggests a little salt first."},
+      {"id": "d10-vocab-1", "mode": "vocab", "topic": "Produce used in a simple Mexican salsa, featuring el jitomate."},
+      {"id": "d10-vocab-2", "mode": "vocab", "topic": "Kitchen tools for washing and chopping produce, featuring la tabla de picar."},
+      {"id": "d10-vocab-3", "mode": "vocab", "topic": "Tabletop ingredients and utensils for seasoning salsa, featuring el limón."}
+    ]
+  },
+  {
+    "theme": "Planning around the weather",
+    "episodes": [
+      {"id": "d11-dialogue-1", "mode": "dialogue", "topic": "Lupita sees dark clouds before a walk and asks Jisoo whether they should take an umbrella or wait."},
+      {"id": "d11-dialogue-2", "mode": "dialogue", "topic": "Jisoo plans what to wear on a windy morning with Lupita and decides to bring a light sweater for later."},
+      {"id": "d11-dialogue-3", "mode": "dialogue", "topic": "It starts raining before Lupita and Jisoo leave; they move their outdoor meet-up indoors and agree on a new time."},
+      {"id": "d11-vocab-1", "mode": "vocab", "topic": "Wearable and handheld rain gear, featuring el paraguas."},
+      {"id": "d11-vocab-2", "mode": "vocab", "topic": "Layers and accessories for a windy morning, featuring el suéter."},
+      {"id": "d11-vocab-3", "mode": "vocab", "topic": "Familiar objects used when arriving somewhere wet, featuring el tapete."}
+    ]
+  },
+  {
+    "theme": "Checking into a hotel",
+    "episodes": [
+      {"id": "d12-dialogue-1", "mode": "dialogue", "topic": "Jisoo checks in under his last name and confirms with Lupita that his booking is for two nights."},
+      {"id": "d12-dialogue-2", "mode": "dialogue", "topic": "Lupita asks Jisoo where the elevator is and confirms which floor her room is on."},
+      {"id": "d12-dialogue-3", "mode": "dialogue", "topic": "Jisoo tells Lupita the room key card does not work; she offers to reactivate it and asks for his room number."},
+      {"id": "d12-vocab-1", "mode": "vocab", "topic": "Hotel reception desk objects, featuring el mostrador."},
+      {"id": "d12-vocab-2", "mode": "vocab", "topic": "Fixtures and signs in a hotel hallway, featuring el elevador."},
+      {"id": "d12-vocab-3", "mode": "vocab", "topic": "Objects issued to hotel guests, featuring la tarjeta de la habitación."}
+    ]
+  },
+  {
+    "theme": "Eating at a taquería",
+    "episodes": [
+      {"id": "d13-dialogue-1", "mode": "dialogue", "topic": "Jisoo asks Lupita which tacos are mild, then orders two bistec tacos with the salsa on the side."},
+      {"id": "d13-dialogue-2", "mode": "dialogue", "topic": "Lupita tells Jisoo one taco with chopped onion is missing from their order, and he politely checks with the server."},
+      {"id": "d13-dialogue-3", "mode": "dialogue", "topic": "At a taquería, Jisoo asks for napkins and the check. Lupita asks to split the bill and offers to pay for the drinks."},
+      {"id": "d13-vocab-1", "mode": "vocab", "topic": "Common taco fillings you can see at a taquería, featuring el bistec."},
+      {"id": "d13-vocab-2", "mode": "vocab", "topic": "Things served separately with tacos, featuring la cebolla picada."},
+      {"id": "d13-vocab-3", "mode": "vocab", "topic": "Things on a taquería dining table, featuring el servilletero."}
+    ]
+  },
+  {
+    "theme": "Rescheduling an outing",
+    "episodes": [
+      {"id": "d14-dialogue-1", "mode": "dialogue", "topic": "Jisoo calls Lupita because he's running ten minutes late; she offers to wait under the clock by the station exit."},
+      {"id": "d14-dialogue-2", "mode": "dialogue", "topic": "Lupita tells Jisoo her phone battery is almost dead and agrees on a fallback meeting place by a kiosk."},
+      {"id": "d14-dialogue-3", "mode": "dialogue", "topic": "Their train is canceled, so Lupita and Jisoo compare taking a taxi with going tomorrow and confirm the new plan."},
+      {"id": "d14-vocab-1", "mode": "vocab", "topic": "Landmarks people use to find one another at a train station, featuring el reloj de pared."},
+      {"id": "d14-vocab-2", "mode": "vocab", "topic": "Phone and charging items people carry on an outing, featuring la batería portátil."},
+      {"id": "d14-vocab-3", "mode": "vocab", "topic": "Visible objects around a taxi pickup area, featuring la cajuela."}
+    ]
+  }
+]

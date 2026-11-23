@@ -301,6 +301,15 @@ The `upload` job waits for your approval. Before approving, open the run summary
 
 The MP4 artifact is stored before the upload job starts. If the upload fails, the video is not lost.
 
+### Daily publishing
+
+**Publish daily bilingual Shorts** runs on the default branch at **3:17 a.m. America/New_York**. It dispatches one episode at a time with Edge TTS and public visibility, for three conversations and three vocabulary Shorts per New York calendar date. The first enabled scheduled run sets day 1. Dates advance by calendar day, including during pauses. A missed date can be retried separately, and the workflow reports when the curriculum runs out.
+
+- **Enable or pause.** In **Settings → Environments**, configure `youtube-daily` for the default branch with no required reviewers or wait timer. It uses the existing `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, and `YOUTUBE_REFRESH_TOKEN` repository secrets. If the values are scoped to the manual `youtube` environment, add the same values to `youtube-daily`. In **Settings → Secrets and variables → Actions → Variables**, set `DAILY_PUBLISH_ENABLED` to `true` to enable publishing. Set it to `false` or remove it to pause future runs. A running batch can be canceled from Actions. Check for a dispatched child run before resuming.
+- **Preview or retry.** Run **Publish daily bilingual Shorts** manually on the default branch. Choose `preview` and optionally enter a New York date as `YYYY-MM-DD`. Previews work while paused. Choose `retry`, enter the original intended date, and keep publishing enabled to dispatch the unfinished episodes. The run summary links confirmed Shorts and shows what remains. After a quota stop, retry once the provider has reset. **Generate bilingual Short** still supports manual uploads through the `youtube` approval environment.
+- **Extend the queue.** Append seven day objects to [curriculum/daily.json](curriculum/daily.json). Give each a practical theme and exactly three `dialogue` and three `vocab` episodes. Continue the stable IDs, beginning with `d15-dialogue-1` and `d15-vocab-1`, and keep earlier days in order. Use distinct situations and vocabulary themes with a concrete, photographable target. Run `npm test` to validate the queue.
+- **Recover an uncertain upload.** The `daily-publish-state` branch stores `daily-publish.json` and its commit history. Each episode entry tracks its intended date, worker run and confirmed public video ID. If the controller asks for reconciliation, inspect the linked run (or look for **Daily Short <episode ID>** near the dispatch time) and YouTube Studio. Once the worker has finished, edit the ledger on the state branch. For a confirmed public Short, set `status` to `published`, `visibility` to `public`, and `videoId` to the verified ID. If you confirm no video exists, set `status` to `failed` so the controller can retry it. If a matching video exists but has another visibility, verify and correct it in Studio before recording it as published. Retain the original date and worker run ID if known. Use the daily retry entry point for the next attempt.
+
 ### Running it
 
 1. Go to **Actions → Generate bilingual Short → Run workflow**.
@@ -429,7 +438,7 @@ Each `videos.insert` call costs a large share of it; see Google's
   variables. They are never interpolated into `run:` scripts, which prevents script injection. The summary step
   reads `metadata.json` from disk.
 - The workflow has `permissions: contents: read`, and checkout does not keep credentials.
-- Uploads need approval on the `youtube` environment. Visibility comes only from the selected input.
+- Manual uploads use approval on the `youtube` environment. Daily uploads use the `youtube-daily` environment and require public visibility.
 - `client_secret*.json`, `*token*.json`, `.env*` (except `.env.example`), `.secrets/` and `out/` are gitignored.
 
 ## Troubleshooting

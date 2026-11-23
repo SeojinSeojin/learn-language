@@ -20,6 +20,8 @@ export interface UploadOptions {
   metadata: YouTubeMetadata;
   privacyStatus: PrivacyStatus;
   fetchImpl?: FetchLike;
+  beforeUploadBytes?: () => Promise<void>;
+  onUploadRejected?: () => Promise<void>;
   /** Delay between PUT retries (ms). Tests pass 0. */
   retryDelayMs?: number;
 }
@@ -115,6 +117,7 @@ export async function uploadVideo(o: UploadOptions): Promise<UploadResult> {
   if (!location) throw new UserFacingError('YouTube did not return a resumable upload URL (Location header).');
 
   // 2) Upload bytes, resuming on 5xx / network errors.
+  await o.beforeUploadBytes?.();
   let offset = 0;
   let final: Response | undefined;
   for (let attempt = 1; attempt <= MAX_PUT_ATTEMPTS && !final; attempt++) {
@@ -133,7 +136,13 @@ export async function uploadVideo(o: UploadOptions): Promise<UploadResult> {
         final = res;
         break;
       }
-      if (res.status < 500 && res.status !== 308) throw mapError(await readGoogleError(res), 'upload');
+      if (res.status < 500 && res.status !== 308) {
+        const error = mapError(await readGoogleError(res), 'upload');
+        // A direct rejection on the first PUT can be retried as a new upload.
+        // After a timeout or server error an earlier PUT may have succeeded.
+        if (attempt === 1 && [400, 401, 403, 413, 415, 422, 429].includes(res.status)) await o.onUploadRejected?.();
+        throw error;
+      }
       transient = `HTTP ${res.status}`;
       await res.text().catch(() => '');
     }

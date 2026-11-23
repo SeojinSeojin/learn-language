@@ -1,4 +1,5 @@
 name: Generate bilingual Short
+run-name: ${{ inputs.daily_episode != '' && format('Daily Short {0}', inputs.daily_episode) || 'Generate bilingual Short' }}
 
 on:
   workflow_dispatch:
@@ -55,6 +56,11 @@ on:
         required: false
         default: ""
 
+      daily_episode:
+        description: Internal daily publisher episode ID (leave blank for manual Shorts)
+        type: string
+        required: false
+
 permissions:
   contents: read
 
@@ -67,8 +73,12 @@ concurrency:
 jobs:
   generate:
     name: Generate Short
+    if: >-
+      inputs.daily_episode == '' ||
+      (vars.DAILY_PUBLISH_ENABLED == 'true' && github.run_attempt == 1 &&
+       github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: ${{ inputs.daily_episode != '' && 35 || 45 }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -123,6 +133,7 @@ jobs:
         run: npm run tts:smoke -- --out=out/tts-smoke
 
       - name: Generate Short
+        id: generate
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
@@ -153,6 +164,10 @@ jobs:
             --title="$TITLE_OVERRIDE" \
             --description="$DESCRIPTION_OVERRIDE"
 
+      - name: Provider quota stop
+        if: failure() && steps.generate.outputs.provider_quota == 'true'
+        run: echo 'Generation provider quota or rate limit exhausted.'
+
       - name: Save TTS line cache
         if: always() && inputs.tts_provider == 'edge'
         uses: actions/cache/save@v6
@@ -161,6 +176,8 @@ jobs:
           key: tts-edge-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Write metadata to run summary
+        env:
+          DAILY_EPISODE: ${{ inputs.daily_episode }}
         run: |
           node -e '
             const fs = require("node:fs");
@@ -169,7 +186,7 @@ jobs:
             const lines = [
               "## Generated Short metadata",
               "",
-              "Review before approving the `youtube` environment.",
+              process.env.DAILY_EPISODE ? "Daily episode " + process.env.DAILY_EPISODE : "Review before approving the `youtube` environment.",
               "",
               "**Title**",
               "",
@@ -218,8 +235,10 @@ jobs:
     needs: generate
     if: inputs.upload == true
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    environment: youtube
+    timeout-minutes: ${{ inputs.daily_episode != '' && 15 || 20 }}
+    environment: ${{ inputs.daily_episode != '' && 'youtube-daily' || 'youtube' }}
+    permissions:
+      contents: write
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -248,11 +267,17 @@ jobs:
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           VISIBILITY: ${{ inputs.visibility }}
+          DAILY_EPISODE: ${{ inputs.daily_episode }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           npm run youtube:upload -- \
             --video out/job/short.mp4 \
             --metadata out/job/metadata.json \
             --privacy="$VISIBILITY"
+
+      - name: Provider quota stop
+        if: failure() && steps.youtube.outputs.provider_quota == 'true'
+        run: echo 'YouTube provider quota exhausted.'
 
       - name: Write upload result to run summary
         if: success()

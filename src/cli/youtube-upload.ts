@@ -2,6 +2,7 @@
 // Usage: npm run youtube:upload -- --video out/x/short.mp4 --metadata out/x/metadata.json --privacy private|unlisted|public
 //        [--title "..."] [--description "..."] [--dry-run]
 import { appendFileSync, readFileSync } from 'node:fs';
+import { dailyUpload } from '../daily/state';
 import { UserFacingError, runCli } from '../util/errors';
 import { optionalEnv, parseArgs, requireEnv } from '../util/env';
 import { normalizeMetadata, parsePrivacy, sanitizeDescription, sanitizeTitle, type YouTubeMetadata } from '../youtube/metadata';
@@ -49,6 +50,9 @@ runCli(async () => {
     return;
   }
 
+  const dailyId = process.env.DAILY_EPISODE;
+  const daily = dailyId ? await dailyUpload(dailyId, privacy) : undefined;
+
   const clientId = requireEnv('YOUTUBE_CLIENT_ID');
   const clientSecret = requireEnv('YOUTUBE_CLIENT_SECRET');
   const refreshToken = optionalEnv('YOUTUBE_REFRESH_TOKEN') ?? loadTokenFile(DEFAULT_TOKEN_PATH)?.refresh_token;
@@ -61,8 +65,14 @@ runCli(async () => {
 
   const accessToken = await refreshAccessToken({ clientId, clientSecret, refreshToken });
   console.log(`Uploading ${video} as ${privacy}…`);
-  const result = await uploadVideo({ accessToken, videoPath: video, metadata, privacyStatus: privacy });
+  const result = await uploadVideo({
+    accessToken, videoPath: video, metadata, privacyStatus: privacy,
+    beforeUploadBytes: daily?.beforeUploadBytes,
+    onUploadRejected: daily?.onUploadRejected,
+  });
   console.log(`✔ Uploaded (${result.privacyStatus}): ${result.url}`);
+
+  await daily?.confirm(result);
 
   const summary = process.env.GITHUB_STEP_SUMMARY;
   if (summary) appendFileSync(summary, `\n**Uploaded to YouTube** (${result.privacyStatus}): ${result.url}\n`);
