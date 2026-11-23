@@ -6,6 +6,8 @@
     "generate": "tsx src/cli/generate.ts",
     "sample": "tsx src/cli/generate.ts --sample cafe --out out/sample",
     "sample:park": "tsx src/cli/generate.ts --sample park --out out/sample-park",
+    "vocab": "tsx src/cli/generate.ts --mode vocab",
+    "sample:vocab": "tsx src/cli/generate.ts --mode vocab --sample --out out/sample-vocab",
     "scenes:preview": "tsx src/cli/scenes-preview.ts",
     "render": "tsx src/cli/render.ts",
     "preview": "tsx src/cli/preview.ts",

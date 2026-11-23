@@ -13,10 +13,11 @@ const TYPES: Record<string, string> = {
   '.woff': 'font/woff',
   '.wav': 'audio/wav',
   '.png': 'image/png',
+  '.jpg': 'image/jpeg',
   '.svg': 'image/svg+xml',
 };
 // Only these files from the job dir are exposed (never .env, tokens, etc.).
-const JOB_ALLOW = /^(timeline\.json|audio\/[a-z0-9-]+\.wav)$/;
+const JOB_ALLOW = /^(timeline\.json|audio\/[a-z0-9-]+\.wav|images\/word-[0-9]+\.jpg)$/;
 
 export interface StaticServer {
   url: string;

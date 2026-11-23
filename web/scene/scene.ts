@@ -11,6 +11,8 @@ import { getPreset } from './presets';
 
 export interface SceneOptions {
   renderer?: 'webgl' | 'canvas';
+  /** Absolute URL of timeline.json (used by scenes that load job assets). */
+  baseUrl?: string;
 }
 
 interface Actor {

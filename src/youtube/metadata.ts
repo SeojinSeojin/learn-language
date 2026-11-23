@@ -1,5 +1,5 @@
 // Builds and sanitizes YouTube metadata for a generated Short. No network, no credentials.
-import { CHARACTERS, type Dialogue } from '../../shared/types';
+import { CHARACTERS, type Dialogue, type VocabList } from '../../shared/types';
 import { getScene } from '../../shared/scenes';
 import { UserFacingError } from '../util/errors';
 
@@ -183,4 +183,50 @@ export function formatMetadataForReview(m: YouTubeMetadata): string {
     fence,
     '',
   ].join('\n');
+}
+
+// ---------- Vocabulary mode ----------
+
+const VOCAB_TAGS = ['Mexican Spanish', 'Korean', 'learn Spanish', 'learn Korean', 'Spanish vocabulary', 'Korean vocabulary', 'language learning', 'Shorts'];
+
+function generateVocabTitle(topic: string, count: number): string {
+  const suffix = ` | ${count} words in Mexican Spanish & Korean #Shorts`;
+  const clean = sanitizeText(topic).replace(/\s+/g, ' ').trim() || 'Basic words';
+  const room = TITLE_MAX_CHARS - suffix.length;
+  const t = Array.from(clean).length > room ? Array.from(clean).slice(0, room - 1).join('').trimEnd() + '…' : clean;
+  return t + suffix;
+}
+
+function generateVocabDescription(list: VocabList, attributions: string[], ttsProvider: 'edge' | 'gemini' | undefined): string {
+  const parts: string[] = [];
+  parts.push(`Learn ${list.words.length} basic words about "${list.topic.trim()}" in Mexican Spanish 🇲🇽 and Korean 🇰🇷 (with English).`);
+  parts.push('Each word is said twice in Spanish, then twice in Korean. Repeat after the voices!');
+  parts.push('');
+  parts.push('— Words —');
+  list.words.forEach((w, i) => parts.push(`${i + 1}. 🇲🇽 ${w.esMX} · 🇰🇷 ${w.ko} (≈ ${w.koPronunciation}) · 🇺🇸 ${w.en}`));
+  parts.push('');
+  parts.push('Note: the "≈" pronunciation hints are approximate, English-friendly guides to the Korean. Listen to the audio for real pronunciation.');
+  const voices = ttsProvider === 'edge' ? 'Microsoft Edge TTS' : 'Gemini TTS';
+  parts.push(`Voices are AI-generated (${voices}) and the word list is AI-generated (Gemini), so small mistakes are possible.`);
+  if (attributions.length) {
+    parts.push('');
+    parts.push('— Picture credits (Wikimedia Commons) —');
+    parts.push(...attributions);
+  }
+  parts.push('');
+  parts.push(episodeHashtags({ topic: list.topic, sceneId: '', lines: [], hashtags: list.hashtags }).map((t) => '#' + t).join(' '));
+  return parts.join('\n');
+}
+
+export function buildVocabMetadata(
+  list: VocabList,
+  o: { title?: string; description?: string; privacyStatus: PrivacyStatus; ttsProvider?: 'edge' | 'gemini'; attributions?: string[] },
+): YouTubeMetadata {
+  const privacyStatus = parsePrivacy(o.privacyStatus);
+  const title = o.title?.trim() ? sanitizeTitle(o.title) : sanitizeTitle(generateVocabTitle(list.topic, list.words.length));
+  const description = o.description?.trim()
+    ? sanitizeDescription(o.description)
+    : sanitizeDescription(generateVocabDescription(list, o.attributions ?? [], o.ttsProvider));
+  const topicTags = (list.hashtags ?? []).filter((t) => !VOCAB_TAGS.some((x) => x.toLowerCase() === t.toLowerCase()));
+  return { title, description, tags: [...VOCAB_TAGS, ...topicTags], categoryId: EDUCATION_CATEGORY_ID, privacyStatus };
 }

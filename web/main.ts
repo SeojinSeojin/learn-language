@@ -5,9 +5,10 @@
 import '@fontsource/noto-sans-kr/500.css';
 import '@fontsource/noto-sans-kr/700.css';
 import '@fontsource/noto-sans-kr/900.css';
-import type { Timeline } from '../shared/types';
+import { isVocabTimeline, type AnyTimeline } from '../shared/types';
 import { ShortScene } from './scene/scene';
 import { Overlay } from './scene/overlay';
+import { VocabScene } from './scene/vocab';
 
 declare global {
   interface Window {
@@ -24,8 +25,9 @@ const timelineUrl = params.get('timeline') ?? 'job/timeline.json';
 const rendererParam = params.get('renderer');
 document.body.classList.add(mode);
 
-async function loadFonts(timeline: Timeline) {
-  const text = Overlay.allStrings(timeline).join(' ') + ' 0123456789·≈→!?¿¡';
+async function loadFonts(timeline: AnyTimeline) {
+  const strings = isVocabTimeline(timeline) ? VocabScene.allStrings(timeline) : Overlay.allStrings(timeline);
+  const text = strings.join(' ') + ' 0123456789·≈→!?¿¡';
   // Fontsource splits Noto Sans KR into unicode-range subsets; request exactly the glyphs we draw.
   await Promise.all(
     ['500', '700', '900'].map((w) => document.fonts.load(`${w} 64px "Noto Sans KR"`, text)),
@@ -37,11 +39,12 @@ async function loadFonts(timeline: Timeline) {
 async function boot() {
   const res = await fetch(timelineUrl);
   if (!res.ok) throw new Error(`Could not load ${timelineUrl} (${res.status})`);
-  const timeline = (await res.json()) as Timeline;
+  const timeline = (await res.json()) as AnyTimeline;
   await loadFonts(timeline);
 
-  const scene = new ShortScene(timeline);
-  await scene.init({ renderer: rendererParam === 'canvas' || rendererParam === 'webgl' ? rendererParam : undefined });
+  const renderer = rendererParam === 'canvas' || rendererParam === 'webgl' ? rendererParam : undefined;
+  const scene = isVocabTimeline(timeline) ? new VocabScene(timeline) : new ShortScene(timeline);
+  await scene.init({ renderer, baseUrl: new URL(timelineUrl, location.href).href });
   document.getElementById('stage')!.appendChild(scene.app.canvas);
   const canvas = scene.app.canvas as HTMLCanvasElement;
 

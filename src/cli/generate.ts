@@ -2,6 +2,7 @@
 //                     [--privacy private|unlisted|public] [--title ...] [--description ...] [--resume]
 // --resume (with --out of a failed run) reuses its script.json and finished WAVs instead of spending quota again.
 // npm run sample                 (explicit no-credentials mode: fixed dialogue + local test audio)
+// --mode vocab (alias: npm run vocab): basic words with pictures instead of a dialogue (see src/vocab/run.ts).
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { Dialogue } from '../../shared/types';
@@ -16,6 +17,7 @@ import { assertRenderableScene, log, renderAndVerify, writeTestAudio, writeTimel
 import { checkFfmpeg } from '../render/ffmpeg';
 import { DEFAULT_GEMINI_MODEL, DEFAULT_GEMINI_TTS_MODEL, optionalEnv, parseArgs, requireEnv, ttsProvider } from '../util/env';
 import { runCli, UserFacingError } from '../util/errors';
+import { runVocab } from '../vocab/run';
 
 const str = (v: string | boolean | undefined) => (typeof v === 'string' ? v.trim() : '');
 
@@ -25,6 +27,9 @@ function slug(s: string) {
 
 runCli(async () => {
   const args = parseArgs();
+  const mode = str(args.mode) || 'dialogue';
+  if (mode === 'vocab') return runVocab(args);
+  if (mode !== 'dialogue') throw new UserFacingError(`--mode must be dialogue or vocab (got "${mode}")`);
   const sampleArg = args.sample;
   const sample = sampleArg !== undefined && sampleArg !== false;
   const privacy = parsePrivacy(str(args.privacy) || 'private');

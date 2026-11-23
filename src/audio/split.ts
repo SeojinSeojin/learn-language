@@ -144,3 +144,26 @@ export function lineWeight(text: string): number {
   if (hangul) return hangul;
   return Math.max(1, text.toLowerCase().match(/[aeiouáéíóúü]+/g)?.length ?? 1);
 }
+
+/**
+ * Splits a clip that reads many short items (single words) with a clear pause between each, by cutting at
+ * the n-1 longest silent gaps. Unlike splitByPauses this needs no length estimate and stays fast for
+ * 10+ items. Throws SplitError if there are not enough pauses or a piece is implausibly short.
+ */
+export function splitByLongestPauses(audio: PcmAudio, n: number): PcmAudio[] {
+  if (n === 1) return [trim(audio)];
+  const rms = frameRms(audio);
+  const thr = silenceThreshold(rms);
+  const [s0, s1] = speechSpan(rms, thr);
+  if (s1 - s0 <= 0.3) throw new SplitError('audio contains no speech');
+  const gaps = findGaps(rms, thr, s0, s1);
+  if (gaps.length < n - 1) throw new SplitError(`found ${gaps.length} pause(s) but need ${n - 1} to separate ${n} words`);
+  const cuts = [...gaps].sort((a, b) => b.len - a.len).slice(0, n - 1).map((g) => g.mid).sort((a, b) => a - b);
+  const bounds = [0, ...cuts, audio.samples.length / audio.sampleRate];
+  const clips = bounds.slice(0, -1).map((b, i) => trim(slice(audio, b, bounds[i + 1])));
+  clips.forEach((c, i) => {
+    const d = c.samples.length / c.sampleRate;
+    if (d < 0.2) throw new SplitError(`word ${i + 1} split looks wrong (${d.toFixed(2)} s)`);
+  });
+  return clips;
+}

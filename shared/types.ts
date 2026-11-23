@@ -76,3 +76,74 @@ export interface Timeline {
   /** Relative URL (from the timeline JSON) of the mixed audio, used by browser preview. */
   audio: string;
 }
+
+// ---------- Vocabulary mode ----------
+
+/** One vocabulary item: the same concept in Mexican Spanish, Korean and English. */
+export interface VocabWord {
+  /** Mexican Spanish, nouns with their article (e.g. "la manzana"). */
+  esMX: string;
+  ko: string;
+  koPronunciation: string;
+  en: string;
+  /** English Wikipedia article whose lead image shows the word (image lookup only). */
+  wikiTitle: string;
+  /** Short English search phrase for Wikimedia Commons (image lookup fallback). */
+  imageQuery: string;
+}
+
+export interface VocabList {
+  topic: string;
+  words: VocabWord[];
+  /** Topic-specific hashtags suggested by Gemini, normalized without "#" (may be empty). */
+  hashtags?: string[];
+}
+
+/** Each language is spoken twice: first in Lupita's voice, then in Jisoo's. */
+export const VOCAB_VOICE_ORDER: readonly Speaker[] = ['lupita', 'jisoo'];
+
+export interface VocabTimelineClip {
+  lang: Lang;
+  /** 1 or 2: which repetition of this language. */
+  rep: number;
+  voice: Speaker;
+  start: number;
+  end: number;
+}
+
+export interface VocabTimelineWord {
+  index: number; // 0-based
+  start: number; // word view appears
+  end: number; // word view gone
+  esMX: string;
+  ko: string;
+  koPronunciation: string;
+  en: string;
+  /** Relative URL (from the timeline JSON) of the square picture, if one was found. */
+  image?: string;
+  /** Short on-screen credit for the picture (author · license · source). */
+  credit?: string;
+  clips: VocabTimelineClip[];
+}
+
+export interface VocabTimeline {
+  version: 1;
+  mode: 'vocab';
+  topic: string;
+  width: number;
+  height: number;
+  fps: number;
+  duration: number;
+  frameCount: number;
+  seed: number;
+  cards: TimelineCard[];
+  words: VocabTimelineWord[];
+  audio: string;
+}
+
+/** What timeline.json may contain: a dialogue episode (no `mode`) or a vocabulary episode. */
+export type AnyTimeline = Timeline | VocabTimeline;
+
+export function isVocabTimeline(t: AnyTimeline): t is VocabTimeline {
+  return (t as VocabTimeline).mode === 'vocab';
+}

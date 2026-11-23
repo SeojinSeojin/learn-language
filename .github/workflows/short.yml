@@ -4,9 +4,16 @@ on:
   workflow_dispatch:
     inputs:
       topic:
-        description: "Conversation topic (e.g. Ordering iced coffee at a café)"
+        description: "Topic (dialogue: e.g. Ordering iced coffee at a café; vocab: e.g. Fruits)"
         type: string
         required: true
+      mode:
+        description: "dialogue = two characters talk; vocab = 8-15 basic words with pictures (scene is ignored)"
+        type: choice
+        options:
+          - dialogue
+          - vocab
+        default: dialogue
       upload:
         description: "Upload to YouTube after generation (requires approval on the 'youtube' environment)"
         type: boolean
@@ -131,12 +138,14 @@ jobs:
           EDGE_TTS_VOICE_JISOO_ES: ${{ vars.EDGE_TTS_VOICE_JISOO_ES }}
           EDGE_TTS_VOICE_JISOO_KO: ${{ vars.EDGE_TTS_VOICE_JISOO_KO }}
           TOPIC: ${{ inputs.topic }}
+          MODE: ${{ inputs.mode }}
           SCENE: ${{ inputs.scene }}
           VISIBILITY: ${{ inputs.visibility }}
           TITLE_OVERRIDE: ${{ inputs.title_override }}
           DESCRIPTION_OVERRIDE: ${{ inputs.description_override }}
         run: |
           npm run generate -- \
+            --mode="$MODE" \
             --topic="$TOPIC" \
             --scene="$SCENE" \
             --out=out/job \

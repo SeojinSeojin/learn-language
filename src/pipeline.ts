@@ -34,12 +34,15 @@ export function writeTestAudio(dialogue: Dialogue, jobDir: string) {
   return paths;
 }
 
+/** OPENING_MUSIC=off (or 0/false/no) disables the intro jingle. */
+export function openingMusicEnabled() {
+  return !/^(off|0|false|no)$/i.test(optionalEnv('OPENING_MUSIC') ?? '');
+}
+
 /** Measures the WAVs, writes timeline.json and the mixed audio/master.wav. */
 export function writeTimeline(dialogue: Dialogue, jobDir: string, audioPaths: Record<Lang, string[]>) {
   const load = (ps: string[]): PcmAudio[] => ps.map((p) => readWav(p));
-  // OPENING_MUSIC=off disables the intro jingle.
-  const music = !/^(off|0|false|no)$/i.test(optionalEnv('OPENING_MUSIC') ?? '');
-  const { timeline, master } = buildTimeline(dialogue, { es: load(audioPaths.es), ko: load(audioPaths.ko) }, { music });
+  const { timeline, master } = buildTimeline(dialogue, { es: load(audioPaths.es), ko: load(audioPaths.ko) }, { music: openingMusicEnabled() });
   writeWav(join(jobDir, timeline.audio), master);
   writeFileSync(join(jobDir, 'timeline.json'), JSON.stringify(timeline, null, 1));
   return timeline;

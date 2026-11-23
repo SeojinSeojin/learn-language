@@ -93,6 +93,43 @@ because YouTube ignores every hashtag on a video that has more. They are also ad
 | `timeline.json` | Timing for every line and section |
 | `audio/` | Per-line WAV files |
 
+## Vocabulary mode
+
+A second kind of Short: instead of a dialogue, a list of **basic words** about the topic, each with a picture.
+
+```bash
+npm run vocab -- --topic "Fruits"            # same as: npm run generate -- --mode vocab --topic "Fruits"
+npm run sample:vocab                         # no credentials: fixed word list, test audio, solid-color pictures
+```
+
+1. **Words**: Gemini picks 12 basic, easy-to-picture words for the topic (8–15 are accepted). Each word has
+   `esMX` (Mexican usage, nouns with their article, e.g. `el plátano`, `el jitomate`), `ko`, `koPronunciation`
+   and `en`, plus `wikiTitle` and `imageQuery` for the picture lookup. The list is validated with zod
+   (lengths, Hangul only in `ko`, no repeated words).
+2. **One view per word**: the picture, then three rows (Spanish, Korean with the pronunciation guide, English).
+   The row being spoken is highlighted, and two dots per language fill in as each repetition plays.
+3. **Speech**: each word is said **twice in Spanish, then twice in Korean**, first in Lupita's voice and then in
+   Jisoo's, so you hear a female and a male speaker. With Edge that is 4 clips per word (cached per clip, 3 at a
+   time). With Gemini TTS it is still **4 requests per video** (one per voice per language, reading the whole list
+   with pauses, split at the longest pauses).
+4. **Length**: the video must stay under **59 s**. After the speech is measured, words are dropped from the end
+   until it fits (at least 8 stay; otherwise the run stops). In practice 10–11 words fit.
+5. **Pictures** (free, no API key): the lead image of the word's English Wikipedia article, or else a Wikimedia
+   Commons search. Only **CC0, CC BY, CC BY-SA and public-domain** pictures are used (no GFDL, NC or ND). Each is
+   cropped to a square with FFmpeg (very wide or tall ones are fitted over a blurred copy). The author and license
+   are shown under the picture and listed in the YouTube description, as the licenses require. If no picture is
+   found, the word is shown on a colored text card instead. `--images off` skips the lookup.
+   - Lead images are fetched for all words in one request; requests are paced, and Wikimedia's HTTP 429
+     `Retry-After` is honored.
+   - Lookups and downloads are cached in `.cache/images/` (`IMAGE_CACHE_DIR`). A failed lookup is not cached.
+   - Wikimedia asks API clients to identify themselves; set `WIKIMEDIA_USER_AGENT` to override the generic
+     User-Agent.
+
+`--privacy`, `--title`, `--description`, `--out`, `--resume` (reuses `script.json`, and with Gemini TTS the
+finished WAVs), `--renderer` and `--concurrency` work as in dialogue mode. `--scene` is ignored. The output folder
+has the same files as a dialogue job, plus `images/`. `npm run render`, `npm run preview` and `npm run frames`
+work on vocabulary jobs too.
+
 ## Speech providers
 
 | | `TTS_PROVIDER=edge` (default) | `TTS_PROVIDER=gemini` |
@@ -269,6 +306,7 @@ The MP4 artifact is stored before the upload job starts. If the upload fails, th
 1. Go to **Actions → Generate bilingual Short → Run workflow**.
 2. Fill in:
    - `topic` (required)
+   - `mode` (`dialogue` / `vocab`, default `dialogue`; see [Vocabulary mode](#vocabulary-mode))
    - `scene` (`auto` / `cafe` / `park` / `school` / `office` / `home`, default `auto`)
    - `tts_provider` (`edge` / `gemini`, default `edge`)
    - `upload` (default off)
@@ -417,14 +455,15 @@ Each `videos.insert` call costs a large share of it; see Google's
 ```text
 src/cli/        Command entry points (generate, render, preview, verify, frames, tts:smoke, scenes:preview, youtube:*)
 src/dialogue/   Dialogue prompt, schema and validation
+src/vocab/      Vocabulary mode: word-list prompt/schema, speech, Wikimedia pictures, timeline, run flow
 src/gemini/     Gemini API client (structured output, quota/error handling)
 src/tts/        Edge TTS (per line, cached) or Gemini TTS (4 batched requests) → per-line WAVs; local test voice for sample mode
 src/audio/      WAV parsing/writing, pause-based line splitting
 src/timeline/   Shared timeline from measured audio durations
 src/render/     Playwright frame capture, FFmpeg encoding, ffprobe verification
 src/youtube/    OAuth (loopback + PKCE) and resumable upload
-shared/         Types, scene registry (scenes.ts) and animation helpers shared by Node and the browser
-web/scene/      PixiJS scene backgrounds, characters and subtitle overlay
+shared/         Types, scene registry (scenes.ts), animation helpers and vocab timing (vocab.ts), shared by Node and the browser
+web/scene/      PixiJS scene backgrounds, characters, subtitle overlay and the vocabulary scene (vocab.ts)
 test/           Unit tests (npm test)
 .github/workflows/short.yml   Manual CI workflow
 ```
