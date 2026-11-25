@@ -260,11 +260,13 @@ jobs:
             echo "| $name | [$id]($(url "$id")) | $gen | $up |" >> "$GITHUB_STEP_SUMMARY"
             [ "$gen" = "success" ] || { echo "::error::$name child failed: $(url "$id")"; fail=1; }
             [ "$up" = "skipped" ] || [ "$up" = "not run" ] || { echo "::error::$name upload job was $up"; fail=1; }
-            gh run view "$id" --log | grep -q "Using prepared script for smoke-$name-1" || { echo "::error::$name did not use the prepared script"; fail=1; }
+            gh run view "$id" --log > "child-$name.log" # saved first: grep -q on a pipe trips pipefail (SIGPIPE)
+            grep -q "Using prepared script for smoke-$name-1" "child-$name.log" || { echo "::error::$name did not use the prepared script"; fail=1; }
           done
           mconc=$(gh run view "$m" --json conclusion --jq .conclusion)
           echo "| missing file | [$m]($(url "$m")) | $mconc (expected failure) | not run |" >> "$GITHUB_STEP_SUMMARY"
           [ "$mconc" = "failure" ] || { echo "::error::missing-file child should fail"; fail=1; }
-          gh run view "$m" --log-failed | grep -q "Prepared script for episode smoke-missing-1 is missing" \
+          gh run view "$m" --log-failed > child-missing.log
+          grep -q "Prepared script for episode smoke-missing-1 is missing" child-missing.log \
             || { echo "::error::missing-file child did not report the missing file clearly"; fail=1; }
           exit $fail
