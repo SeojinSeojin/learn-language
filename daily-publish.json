@@ -12,7 +12,7 @@
     "d01-dialogue-2": {
       "date": "2026-11-25",
       "controller": "45677553013/3",
-      "status": "dispatched",
+      "status": "failed",
       "runId": 45698283703
     }
   }
