@@ -14,6 +14,11 @@
       "controller": "45677553013/3",
       "status": "failed",
       "runId": 45698283703
+    },
+    "d01-dialogue-3": {
+      "date": "2026-11-25",
+      "controller": "45677553013/3",
+      "status": "dispatched"
     }
   }
 }
