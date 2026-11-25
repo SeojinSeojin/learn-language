@@ -4,8 +4,10 @@
     "d01-dialogue-1": {
       "date": "2026-11-25",
       "controller": "45677553013/3",
-      "status": "uploading",
-      "runId": 45697540087
+      "status": "published",
+      "runId": 45697540087,
+      "videoId": "X6X35nfWt4Q",
+      "visibility": "public"
     }
   }
 }
