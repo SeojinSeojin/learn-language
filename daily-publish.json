@@ -19,9 +19,8 @@
     },
     "d01-dialogue-3": {
       "date": "2026-11-25",
-      "controller": "45677553013/3",
-      "status": "failed",
-      "runId": 45698827217
+      "controller": "45677553013/4",
+      "status": "dispatched"
     },
     "d01-vocab-1": {
       "date": "2026-11-25",
