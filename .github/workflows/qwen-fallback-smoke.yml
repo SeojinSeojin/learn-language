@@ -26,11 +26,6 @@ concurrency:
   group: qwen-fallback-smoke-${{ github.ref }}
   cancel-in-progress: false
 
-env:
-  # Not a secret: the mock server ignores it. Present only because the Gemini client requires a key.
-  GEMINI_API_KEY: mock-key-not-a-secret
-  GEMINI_INTERACTIONS_URL: http://127.0.0.1:8787/v1beta/interactions
-
 jobs:
   mocked:
     name: Mocked checks (Gemini healthy skips Ollama)
@@ -56,6 +51,10 @@ jobs:
 
       - name: Prepare scripts with (mock) Gemini
         id: gemini
+        env:
+          # Not a secret: the loopback mock ignores it. Present only because the Gemini client requires a key.
+          GEMINI_API_KEY: mock-key-not-a-secret
+          GEMINI_INTERACTIONS_URL: http://127.0.0.1:8787/v1beta/interactions
         run: |
           npx tsx src/daily/prepare.ts --phase gemini --episodes test/fixtures/smoke-episodes.json \
             --dir out/healthy/scripts --state out/healthy/state.json
@@ -106,6 +105,10 @@ jobs:
       # Real client code and real 120 s timeout; only the server is fake.
       - name: Prepare scripts with (mock) Gemini
         id: gemini
+        env:
+          # Not a secret: the loopback mock ignores it. Present only because the Gemini client requires a key.
+          GEMINI_API_KEY: mock-key-not-a-secret
+          GEMINI_INTERACTIONS_URL: http://127.0.0.1:8787/v1beta/interactions
         run: |
           npx tsx src/daily/prepare.ts --phase gemini --episodes test/fixtures/smoke-episodes.json \
             --dir out/smoke/scripts --state out/smoke/state.json
