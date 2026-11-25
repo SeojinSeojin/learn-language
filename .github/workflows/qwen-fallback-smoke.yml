@@ -5,6 +5,8 @@ run-name: Qwen fallback smoke test (${{ inputs.model }})
 # for real in Ollama on this GitHub-hosted runner, and the child Short runs use upload=false.
 # It never dispatches the Daily publisher.
 on:
+  push: # TEMPORARY: registers the workflow so it can be dispatched from this branch
+    branches: [qwen-fallback]
   workflow_dispatch:
     inputs:
       model:
