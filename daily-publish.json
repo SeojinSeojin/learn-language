@@ -26,6 +26,11 @@
       "controller": "45677553013/3",
       "status": "failed",
       "runId": 45699161678
+    },
+    "d01-vocab-2": {
+      "date": "2026-11-25",
+      "controller": "45677553013/3",
+      "status": "dispatched"
     }
   }
 }
