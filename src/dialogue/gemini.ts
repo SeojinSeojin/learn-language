@@ -1,18 +1,28 @@
 // Topic → bilingual dialogue via Gemini structured output (Interactions API).
 import type { Dialogue } from '../../shared/types';
 import { SCENE_IDS, isSceneId, type SceneId } from '../../shared/scenes';
-import { callInteraction, extractText } from '../gemini/client';
+import { geminiTextGenerator, type TextGenerator } from '../text/provider';
 import { UserFacingError } from '../util/errors';
 import { DIALOGUE_LIMITS, DialogueValidationError, dialogueJsonSchema, sceneCatalog, validateDialogue } from './schema';
 
 export const MAX_TOPIC_LENGTH = 120;
 
 export interface GenerateDialogueOptions {
-  apiKey: string;
-  model: string;
+  /** Gemini credentials (used unless `generator` is given). */
+  apiKey?: string;
+  model?: string;
   scene?: SceneId | 'auto';
   timeoutMs?: number;
   retryBaseMs?: number;
+  /** Another text provider (e.g. the local Qwen fallback). Same prompt, schema and validation. */
+  generator?: TextGenerator;
+}
+
+/** The explicit generator, or Gemini built from apiKey/model. */
+export function resolveGenerator(opts: { apiKey?: string; model?: string; timeoutMs?: number; retryBaseMs?: number; generator?: TextGenerator }): TextGenerator {
+  if (opts.generator) return opts.generator;
+  if (!opts.apiKey || !opts.model) throw new UserFacingError('Gemini text generation needs an API key and a model.');
+  return geminiTextGenerator({ apiKey: opts.apiKey, model: opts.model, timeoutMs: opts.timeoutMs, retryBaseMs: opts.retryBaseMs });
 }
 
 export function normalizeTopic(topic: string): string {
@@ -89,18 +99,11 @@ export async function generateDialogue(topic: string, opts: GenerateDialogueOpti
   }
   const schema = dialogueJsonSchema(scene === 'auto' ? SCENE_IDS : [scene]);
   const requiredScene = scene === 'auto' ? undefined : scene;
+  const generator = resolveGenerator(opts);
 
   let issues: string[] = [];
   for (let attempt = 1; attempt <= 2; attempt++) {
-    const interaction = await callInteraction(
-      {
-        model: opts.model,
-        input: buildDialoguePrompt(cleanTopic, scene, issues),
-        response_format: { type: 'text', mime_type: 'application/json', schema },
-      },
-      { apiKey: opts.apiKey, timeoutMs: opts.timeoutMs, retryBaseMs: opts.retryBaseMs },
-    );
-    const text = extractText(interaction);
+    const text = await generator.generate(buildDialoguePrompt(cleanTopic, scene, issues), schema);
     let raw: unknown;
     try {
       raw = parseJsonText(text);
@@ -117,5 +120,5 @@ export async function generateDialogue(topic: string, opts: GenerateDialogueOpti
       console.warn(`  ! Dialogue attempt ${attempt} failed validation (${issues.length} issue(s)).`);
     }
   }
-  throw new DialogueValidationError(issues, 'Gemini did not produce a valid dialogue after 2 attempts');
+  throw new DialogueValidationError(issues, `${generator.label} did not produce a valid dialogue after 2 attempts`);
 }

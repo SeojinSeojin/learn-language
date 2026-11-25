@@ -40,7 +40,7 @@ test('daily preview, failure recovery, quota and reconciliation use mocked workf
       assert.deepEqual(request, {
         ref: 'main', return_run_details: true,
         inputs: { daily_episode: id, topic: episode.topic, mode: episode.mode, upload: 'true',
-          visibility: 'public', scene: 'auto', tts_provider: 'edge' },
+          visibility: 'public', scene: 'auto', tts_provider: 'edge', prepared_script: `10/${id}` },
       });
       const run = runs.size + 1;
       runs.set(run, { id, failure: id === episodes[1].id ? failure : undefined });
@@ -84,6 +84,7 @@ test('daily preview, failure recovery, quota and reconciliation use mocked workf
   const planned = logs.join('\n').split('\n').filter((line) => line.startsWith('- `')).map((line) => JSON.parse(line.slice(3, -1)));
   assert.deepEqual(planned.map((inputs) => inputs.daily_episode), episodes.map(({ id }) => id));
   assert.deepEqual(planned.map((inputs) => inputs.mode), ['dialogue', 'dialogue', 'dialogue', 'vocab', 'vocab', 'vocab']);
+  assert.ok(planned.every((inputs) => !('prepared_script' in inputs)), 'preview prepares nothing');
   assert.equal(writes, 0);
   assert.equal(dispatched.length, 0);
 

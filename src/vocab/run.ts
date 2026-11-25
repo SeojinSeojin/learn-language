@@ -17,6 +17,7 @@ import { SAMPLE_VOCAB } from './sample';
 import { validateVocab } from './schema';
 import { fitWordCount, buildVocabTimeline, VOCAB_MAX_SECONDS, type VocabClips } from './timeline';
 import { synthesizeVocabEdge, synthesizeVocabGemini, writeVocabTestAudio, type VocabAudioPaths } from './tts';
+import { loadPreparedForRun } from '../prepared/load';
 
 const str = (v: string | boolean | undefined) => (typeof v === 'string' ? v.trim() : '');
 
@@ -46,7 +47,11 @@ export async function runVocab(args: ReturnType<typeof parseArgs>) {
   } else {
     const topic = str(args.topic) || str(args._[0]);
     if (!topic) throw new UserFacingError('Missing --topic. Example: npm run vocab -- --topic "Fruits"', 'For the no-credentials demo, run: npm run sample:vocab');
-    const apiKey = requireEnv('GEMINI_API_KEY', 'Create a free key at https://aistudio.google.com/apikey (or run `npm run sample:vocab` for the no-credentials demo).');
+    // A prepared script is validated before anything else (an invalid one stops before TTS).
+    const prepared = loadPreparedForRun(args, { mode: 'vocab', topic, tts: provider });
+    const apiKey = prepared && provider === 'edge'
+      ? undefined
+      : requireEnv('GEMINI_API_KEY', 'Create a free key at https://aistudio.google.com/apikey (or run `npm run sample:vocab` for the no-credentials demo).');
     checkFfmpeg();
     const model = optionalEnv('GEMINI_MODEL') ?? DEFAULT_GEMINI_MODEL;
     const ttsModel = optionalEnv('GEMINI_TTS_MODEL') ?? DEFAULT_GEMINI_TTS_MODEL;
@@ -61,13 +66,18 @@ export async function runVocab(args: ReturnType<typeof parseArgs>) {
     mkdirSync(jobDir, { recursive: true });
 
     const scriptPath = join(jobDir, 'script.json');
-    const resume = args.resume === true && existsSync(scriptPath);
+    if (prepared?.meta.mode === 'vocab') {
+      // Same path as --resume: the prepared script becomes this job's script.json.
+      writeFileSync(scriptPath, JSON.stringify(prepared.script, null, 2));
+      log(`Using prepared script for ${prepared.meta.episodeId} (${prepared.meta.provider} ${prepared.meta.model}); no Gemini text request.`);
+    }
+    const resume = (prepared !== undefined || args.resume === true) && existsSync(scriptPath);
     if (resume) {
       list = validateVocab(JSON.parse(readFileSync(scriptPath, 'utf8')), topic);
       log(`Resuming with existing script.json (${list.words.length} words)`);
     } else {
       log(`Choosing basic words with ${model}`);
-      list = await generateVocab(topic, { apiKey, model });
+      list = await generateVocab(topic, { apiKey: apiKey!, model });
       writeFileSync(scriptPath, JSON.stringify(list, null, 2));
       log(`Word list OK → script.json (${list.words.length} words)`);
     }
@@ -79,7 +89,7 @@ export async function runVocab(args: ReturnType<typeof parseArgs>) {
       audioPaths = await synthesizeVocabEdge(list.words, jobDir, { voices: edgeVoices });
     } else {
       log(`Synthesizing ${clipCount} clips with ${ttsModel} (4 requests)`);
-      audioPaths = await synthesizeVocabGemini(list.words, jobDir, { apiKey, model: ttsModel, reuseExisting: resume });
+      audioPaths = await synthesizeVocabGemini(list.words, jobDir, { apiKey: apiKey!, model: ttsModel, reuseExisting: resume });
     }
   }
 

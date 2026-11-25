@@ -60,6 +60,10 @@ on:
         description: Internal daily publisher episode ID (leave blank for manual Shorts)
         type: string
         required: false
+      prepared_script:
+        description: "Internal: <preparation run ID>/<episode ID> of a validated script from a daily-scripts artifact (leave blank to generate with Gemini)"
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -79,6 +83,9 @@ jobs:
        github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
     runs-on: ubuntu-24.04
     timeout-minutes: ${{ inputs.daily_episode != '' && 35 || 45 }}
+    permissions:
+      contents: read
+      actions: read # download the prepared script artifact from the preparation run
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -93,6 +100,56 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # Prepared script (Daily batch): fetch this episode's file from the preparation run and validate it
+      # before any media tooling or TTS. Generation then makes no Gemini request.
+      - name: Resolve prepared script
+        id: prepared
+        if: inputs.prepared_script != ''
+        env:
+          PREPARED_SCRIPT: ${{ inputs.prepared_script }}
+          DAILY_EPISODE: ${{ inputs.daily_episode }}
+        run: |
+          if ! [[ "$PREPARED_SCRIPT" =~ ^([0-9]+)/([a-z0-9][a-z0-9-]{0,63})$ ]]; then
+            echo "::error title=Prepared script::prepared_script must be <run id>/<episode id>."; exit 1
+          fi
+          run_id="${BASH_REMATCH[1]}"
+          episode="${BASH_REMATCH[2]}"
+          if [ -n "$DAILY_EPISODE" ] && [ "$DAILY_EPISODE" != "$episode" ]; then
+            echo "::error title=Prepared script::prepared_script is for $episode but daily_episode is $DAILY_EPISODE."; exit 1
+          fi
+          {
+            echo "run_id=$run_id"
+            echo "episode=$episode"
+            echo "file=out/prepared/$episode.json"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download prepared script
+        id: download-prepared
+        if: inputs.prepared_script != ''
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          pattern: daily-scripts-*
+          merge-multiple: true
+          run-id: ${{ steps.prepared.outputs.run_id }}
+          github-token: ${{ github.token }}
+          path: out/prepared
+
+      - name: Validate prepared script
+        if: inputs.prepared_script != ''
+        env:
+          DOWNLOAD_OUTCOME: ${{ steps.download-prepared.outcome }}
+          RUN_ID: ${{ steps.prepared.outputs.run_id }}
+          PREPARED_FILE: ${{ steps.prepared.outputs.file }}
+          PREPARED_EPISODE: ${{ steps.prepared.outputs.episode }}
+          TOPIC: ${{ inputs.topic }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          if [ "$DOWNLOAD_OUTCOME" != "success" ]; then
+            echo "::error title=Prepared script::No daily-scripts artifact could be downloaded from run $RUN_ID (expired, missing or still uploading)."
+          fi
+          npx tsx src/cli/check-prepared.ts --file="$PREPARED_FILE" --episode="$PREPARED_EPISODE" --mode="$MODE" --topic="$TOPIC"
 
       - name: Install ffmpeg (if missing)
         run: command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y ffmpeg)
@@ -135,7 +192,8 @@ jobs:
       - name: Generate Short
         id: generate
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # A prepared script with Edge TTS needs no Gemini key (and the code blocks any Gemini request).
+          GEMINI_API_KEY: ${{ (inputs.prepared_script == '' || inputs.tts_provider == 'gemini') && secrets.GEMINI_API_KEY || '' }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
           GEMINI_TTS_MODEL: ${{ vars.GEMINI_TTS_MODEL }}
           GEMINI_TTS_RPM: ${{ vars.GEMINI_TTS_RPM }}
@@ -154,7 +212,11 @@ jobs:
           VISIBILITY: ${{ inputs.visibility }}
           TITLE_OVERRIDE: ${{ inputs.title_override }}
           DESCRIPTION_OVERRIDE: ${{ inputs.description_override }}
+          PREPARED_FILE: ${{ steps.prepared.outputs.file }}
+          PREPARED_EPISODE: ${{ steps.prepared.outputs.episode }}
         run: |
+          prepared=()
+          if [ -n "$PREPARED_FILE" ]; then prepared=(--prepared="$PREPARED_FILE" --episode="$PREPARED_EPISODE"); fi
           npm run generate -- \
             --mode="$MODE" \
             --topic="$TOPIC" \
@@ -162,7 +224,8 @@ jobs:
             --out=out/job \
             --privacy="$VISIBILITY" \
             --title="$TITLE_OVERRIDE" \
-            --description="$DESCRIPTION_OVERRIDE"
+            --description="$DESCRIPTION_OVERRIDE" \
+            "${prepared[@]}"
 
       - name: Provider quota stop
         if: failure() && steps.generate.outputs.provider_quota == 'true'

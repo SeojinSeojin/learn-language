@@ -53,7 +53,11 @@ export function dailyPlan(date: string, ledger?: Ledger) {
   return day;
 }
 
-export function dispatchInputs(episode: Episode) {
+/**
+ * Inputs for the Short workflow. `preparedRunId` is the Daily run whose `daily-scripts-*` artifact holds this
+ * episode's validated script; the child then makes no Gemini request.
+ */
+export function dispatchInputs(episode: Episode, preparedRunId?: string) {
   return {
     topic: episode.topic,
     mode: episode.mode,
@@ -62,6 +66,7 @@ export function dispatchInputs(episode: Episode) {
     scene: 'auto',
     tts_provider: 'edge',
     daily_episode: episode.id,
+    ...(preparedRunId ? { prepared_script: `${preparedRunId}/${episode.id}` } : {}),
   };
 }
 

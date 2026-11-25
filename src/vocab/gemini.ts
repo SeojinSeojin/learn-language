@@ -1,14 +1,17 @@
 // Topic → basic vocabulary list (Mexican Spanish, Korean, English) via Gemini structured output.
 import type { VocabList } from '../../shared/types';
-import { callInteraction, extractText } from '../gemini/client';
-import { normalizeTopic } from '../dialogue/gemini';
+import { normalizeTopic, resolveGenerator } from '../dialogue/gemini';
+import type { TextGenerator } from '../text/provider';
 import { VOCAB_LIMITS, VOCAB_MAX, VOCAB_MIN, VOCAB_REQUEST_COUNT, VocabValidationError, validateVocab, vocabJsonSchema } from './schema';
 
 export interface GenerateVocabOptions {
-  apiKey: string;
-  model: string;
+  /** Gemini credentials (used unless `generator` is given). */
+  apiKey?: string;
+  model?: string;
   timeoutMs?: number;
   retryBaseMs?: number;
+  /** Another text provider (e.g. the local Qwen fallback). Same prompt, schema and validation. */
+  generator?: TextGenerator;
 }
 
 export function buildVocabPrompt(topic: string, previousIssues: string[] = []): string {
@@ -54,19 +57,13 @@ function parseJsonText(text: string): unknown {
 /** Generates and validates a word list. Retries once with the validation issues. */
 export async function generateVocab(topic: string, opts: GenerateVocabOptions): Promise<VocabList> {
   const cleanTopic = normalizeTopic(topic);
+  const generator = resolveGenerator(opts);
   let issues: string[] = [];
   for (let attempt = 1; attempt <= 2; attempt++) {
-    const interaction = await callInteraction(
-      {
-        model: opts.model,
-        input: buildVocabPrompt(cleanTopic, issues),
-        response_format: { type: 'text', mime_type: 'application/json', schema: vocabJsonSchema() },
-      },
-      { apiKey: opts.apiKey, timeoutMs: opts.timeoutMs, retryBaseMs: opts.retryBaseMs },
-    );
+    const text = await generator.generate(buildVocabPrompt(cleanTopic, issues), vocabJsonSchema());
     let raw: unknown;
     try {
-      raw = parseJsonText(extractText(interaction));
+      raw = parseJsonText(text);
     } catch {
       issues = ['the response was not valid JSON matching the schema'];
       console.warn(`  ! Word list attempt ${attempt}: response was not valid JSON.`);
@@ -80,5 +77,5 @@ export async function generateVocab(topic: string, opts: GenerateVocabOptions): 
       console.warn(`  ! Word list attempt ${attempt} failed validation (${issues.length} issue(s)).`);
     }
   }
-  throw new VocabValidationError(issues, 'Gemini did not produce a valid word list after 2 attempts');
+  throw new VocabValidationError(issues, `${generator.label} did not produce a valid word list after 2 attempts`);
 }
