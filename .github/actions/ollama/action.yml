@@ -1,0 +1,141 @@
+name: Local Qwen via Ollama
+description: >-
+  Restores (or downloads once) Ollama and a public Qwen model, then starts a single Ollama server on
+  127.0.0.1. Keyless. Call it only after a fallback is actually needed, so a healthy Gemini batch transfers
+  no model weights.
+
+inputs:
+  model:
+    description: Public Ollama model tag (no API key), e.g. qwen3:8b or qwen3:4b
+    default: qwen3:8b
+  ollama-version:
+    description: Ollama release tag
+    default: v0.40.18
+
+outputs:
+  model-cache-hit:
+    description: "'true' when the model came from the Actions cache"
+    value: ${{ steps.model-cache.outputs.cache-hit == 'true' }}
+  model-restore-seconds:
+    description: Time spent restoring the model cache (seconds)
+    value: ${{ steps.restore-time.outputs.seconds }}
+  model-download-seconds:
+    description: Time spent downloading the model on a cache miss (empty on a hit)
+    value: ${{ steps.pull.outputs.seconds }}
+  server-pid:
+    description: PID of the one Ollama server started in this job
+    value: ${{ steps.serve.outputs.pid }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve Ollama paths
+      id: vars
+      shell: bash
+      env:
+        MODEL: ${{ inputs.model }}
+      run: |
+        if ! [[ "$MODEL" =~ ^[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)?$ ]]; then
+          echo "::error title=Ollama::Invalid model tag: $MODEL"; exit 1
+        fi
+        echo "model-key=$(printf '%s' "$MODEL" | tr ':/' '--')" >> "$GITHUB_OUTPUT"
+        {
+          echo "OLLAMA_INSTALL_DIR=$HOME/.local/ollama"
+          echo "OLLAMA_MODELS=$HOME/.ollama/models"
+          echo "OLLAMA_HOST=127.0.0.1:11434"
+          echo "OLLAMA_MODEL=$MODEL"
+        } >> "$GITHUB_ENV"
+        echo "$HOME/.local/ollama/bin" >> "$GITHUB_PATH"
+
+    - name: Restore Ollama binary
+      id: bin-cache
+      uses: actions/cache/restore@v6
+      with:
+        path: ~/.local/ollama
+        key: ollama-${{ inputs.ollama-version }}-linux-amd64-cpu
+
+    - name: Download Ollama (CPU backend only)
+      if: steps.bin-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        VERSION: ${{ inputs.ollama-version }}
+      run: |
+        mkdir -p "$OLLAMA_INSTALL_DIR"
+        # GPU backends are useless on a hosted CPU runner; skip them to keep the cached install small.
+        curl -fsSL --retry 3 "https://github.com/ollama/ollama/releases/download/${VERSION}/ollama-linux-amd64.tar.zst" \
+          | zstd -d \
+          | tar -x -C "$OLLAMA_INSTALL_DIR" --wildcards --exclude='*cuda_*' --exclude='*vulkan*' --exclude='*rocm*' --exclude='*mlx*'
+        du -sh "$OLLAMA_INSTALL_DIR"
+
+    - name: Save Ollama binary
+      if: steps.bin-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ~/.local/ollama
+        key: ollama-${{ inputs.ollama-version }}-linux-amd64-cpu
+
+    - name: Mark model restore start
+      shell: bash
+      run: date +%s.%N > "$RUNNER_TEMP/ollama-restore-t0"
+
+    - name: Restore model cache
+      id: model-cache
+      uses: actions/cache/restore@v6
+      with:
+        path: ~/.ollama/models
+        key: ollama-model-${{ steps.vars.outputs.model-key }}-v1
+
+    - name: Model restore time
+      id: restore-time
+      shell: bash
+      run: |
+        t0=$(cat "$RUNNER_TEMP/ollama-restore-t0")
+        echo "seconds=$(awk -v a="$t0" -v b="$(date +%s.%N)" 'BEGIN { printf "%.1f", b - a }')" >> "$GITHUB_OUTPUT"
+
+    - name: Start Ollama server (once per job)
+      id: serve
+      shell: bash
+      run: |
+        if [ -f "$RUNNER_TEMP/ollama.pid" ] && kill -0 "$(cat "$RUNNER_TEMP/ollama.pid")" 2>/dev/null; then
+          echo "::error title=Ollama::An Ollama server is already running in this job."; exit 1
+        fi
+        mkdir -p "$OLLAMA_MODELS"
+        OLLAMA_KEEP_ALIVE=-1 OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_LOADED_MODELS=1 OLLAMA_CONTEXT_LENGTH=8192 \
+          setsid nohup "$OLLAMA_INSTALL_DIR/bin/ollama" serve > "$RUNNER_TEMP/ollama.log" 2>&1 < /dev/null &
+        pid=$!
+        echo "$pid" > "$RUNNER_TEMP/ollama.pid"
+        echo "start $(date -u +%FT%TZ) pid $pid" >> "$RUNNER_TEMP/ollama-starts.log"
+        for _ in $(seq 1 60); do
+          curl -fsS http://127.0.0.1:11434/api/version > /dev/null 2>&1 && break
+          sleep 1
+        done
+        if ! curl -fsS http://127.0.0.1:11434/api/version; then
+          cat "$RUNNER_TEMP/ollama.log"; echo "::error title=Ollama::Server did not start."; exit 1
+        fi
+        echo
+        echo "pid=$pid" >> "$GITHUB_OUTPUT"
+
+    - name: Download model (cache miss only)
+      id: pull
+      shell: bash
+      env:
+        MODEL: ${{ inputs.model }}
+        HIT: ${{ steps.model-cache.outputs.cache-hit }}
+      run: |
+        if [ "$HIT" = "true" ] && ollama show "$MODEL" > /dev/null 2>&1; then
+          echo "Model $MODEL restored from the Actions cache."
+          exit 0
+        fi
+        t0=$(date +%s.%N)
+        ollama pull "$MODEL" > "$RUNNER_TEMP/ollama-pull.log" 2>&1 || { tail -c 4000 "$RUNNER_TEMP/ollama-pull.log"; exit 1; }
+        seconds=$(awk -v a="$t0" -v b="$(date +%s.%N)" 'BEGIN { printf "%.1f", b - a }')
+        echo "Downloaded $MODEL in ${seconds} s ($(du -sh "$OLLAMA_MODELS" | cut -f1))."
+        echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
+        echo "pulled=true" >> "$GITHUB_OUTPUT"
+
+    - name: Save model cache
+      if: steps.pull.outputs.pulled == 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ~/.ollama/models
+        key: ollama-model-${{ steps.vars.outputs.model-key }}-v1

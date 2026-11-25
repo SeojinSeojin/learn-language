@@ -1,6 +1,8 @@
 // npm run generate -- --topic "Ordering iced coffee at a café" [--scene auto|cafe|park|...] [--out dir]
 //                     [--privacy private|unlisted|public] [--title ...] [--description ...] [--resume]
 // --resume (with --out of a failed run) reuses its script.json and finished WAVs instead of spending quota again.
+// --prepared <file> --episode <id>: use a script prepared by the Daily batch (validated first; with Edge TTS
+// no Gemini request is made and no GEMINI_API_KEY is needed).
 // npm run sample                 (explicit no-credentials mode: fixed dialogue + local test audio)
 // --mode vocab (alias: npm run vocab): basic words with pictures instead of a dialogue (see src/vocab/run.ts).
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -18,6 +20,7 @@ import { checkFfmpeg } from '../render/ffmpeg';
 import { DEFAULT_GEMINI_MODEL, DEFAULT_GEMINI_TTS_MODEL, optionalEnv, parseArgs, requireEnv, ttsProvider } from '../util/env';
 import { runCli, UserFacingError } from '../util/errors';
 import { runVocab } from '../vocab/run';
+import { loadPreparedForRun } from '../prepared/load';
 
 const str = (v: string | boolean | undefined) => (typeof v === 'string' ? v.trim() : '');
 
@@ -58,8 +61,12 @@ runCli(async () => {
   } else {
     const topic = str(args.topic) || str(args._[0]);
     if (!topic) throw new UserFacingError('Missing --topic. Example: npm run generate -- --topic "Ordering iced coffee at a café"', 'For the no-credentials demo, run: npm run sample');
+    // A prepared script is validated before anything else (an invalid one stops before TTS).
+    const prepared = loadPreparedForRun(args, { mode: 'dialogue', topic, scene, tts: provider });
     // Fail fast before spending any quota.
-    const apiKey = requireEnv('GEMINI_API_KEY', 'Create a free key at https://aistudio.google.com/apikey (or run `npm run sample` for the no-credentials demo).');
+    const apiKey = prepared && provider === 'edge'
+      ? undefined
+      : requireEnv('GEMINI_API_KEY', 'Create a free key at https://aistudio.google.com/apikey (or run `npm run sample` for the no-credentials demo).');
     checkFfmpeg();
     const model = optionalEnv('GEMINI_MODEL') ?? DEFAULT_GEMINI_MODEL;
     const ttsModel = optionalEnv('GEMINI_TTS_MODEL') ?? DEFAULT_GEMINI_TTS_MODEL;
@@ -75,14 +82,19 @@ runCli(async () => {
     mkdirSync(jobDir, { recursive: true });
 
     const scriptPath = join(jobDir, 'script.json');
-    const resume = args.resume === true && existsSync(scriptPath);
+    if (prepared?.meta.mode === 'dialogue') {
+      // Same path as --resume: the prepared script becomes this job's script.json.
+      writeFileSync(scriptPath, JSON.stringify(prepared.script, null, 2));
+      log(`Using prepared script for ${prepared.meta.episodeId} (${prepared.meta.provider} ${prepared.meta.model}); no Gemini text request.`);
+    }
+    const resume = (prepared !== undefined || args.resume === true) && existsSync(scriptPath);
     if (resume) {
       // Resume after a rate-limit/quota stop: reuse the saved script and any finished WAVs.
       dialogue = validateDialogue(JSON.parse(readFileSync(scriptPath, 'utf8')), topic, scene === 'auto' ? {} : { requiredScene: scene });
       log(`Resuming with existing script.json (scene "${dialogue.sceneId}")`);
     } else {
       log(`Generating dialogue with ${model} (scene: ${scene})`);
-      dialogue = await generateDialogue(topic, { apiKey, model, scene });
+      dialogue = await generateDialogue(topic, { apiKey: apiKey!, model, scene });
       writeFileSync(scriptPath, JSON.stringify(dialogue, null, 2));
       log(`Dialogue OK → script.json (scene "${dialogue.sceneId}")`);
     }
@@ -97,7 +109,7 @@ runCli(async () => {
       audioPaths = await synthesizeDialogueEdge(dialogue, jobDir, { voices: edgeVoices, voicesVerified: true });
     } else {
       log(`Synthesizing 12 lines with ${ttsModel}`);
-      audioPaths = await synthesizeDialogue(dialogue, jobDir, { apiKey, model: ttsModel, reuseExisting: resume });
+      audioPaths = await synthesizeDialogue(dialogue, jobDir, { apiKey: apiKey!, model: ttsModel, reuseExisting: resume });
     }
   }
   assertRenderableScene(dialogue.sceneId);

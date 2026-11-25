@@ -26,11 +26,92 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  daily:
+  # Scripts for every pending episode are generated and validated once, here, before any Short is dispatched.
+  # Gemini is primary. Only after a Gemini timeout or persistent 503 does this job restore/download Ollama and a
+  # public Qwen model (keyless) and start one local server for the remaining episodes. A healthy Gemini batch
+  # skips all Ollama steps. The files are saved as an artifact that each child Short (and a later retry) reuses.
+  prepare:
+    name: Prepare scripts
     if: >-
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      vars.DAILY_PUBLISH_ENABLED == 'true' &&
+      !(github.event_name == 'workflow_dispatch' && inputs.action == 'preview')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      actions: read
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      DAILY_MODE: ${{ github.event_name == 'schedule' && 'scheduled' || inputs.action }}
+      DAILY_DATE: ${{ inputs.date }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+
+      # A retry (or a re-run) reuses scripts already validated for this date, so a TTS or render failure
+      # never regenerates them.
+      - name: Find scripts prepared earlier for this date
+        id: reuse
+        run: npx tsx src/daily/prepare.ts --find-reusable
+      - name: Download earlier scripts
+        if: steps.reuse.outputs.run_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ steps.reuse.outputs.artifact }}
+          run-id: ${{ steps.reuse.outputs.run_id }}
+          github-token: ${{ github.token }}
+          path: out/daily-scripts
+
+      - name: Prepare scripts with Gemini
+        id: gemini
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+        run: npx tsx src/daily/prepare.ts --phase gemini
+
+      - name: Start local Qwen (Gemini outage only)
+        id: ollama
+        if: steps.gemini.outputs.fallback_needed == 'true'
+        uses: ./.github/actions/ollama
+        with:
+          model: ${{ vars.OLLAMA_MODEL || 'qwen3:8b' }}
+
+      - name: Prepare remaining scripts with Qwen
+        if: steps.gemini.outputs.fallback_needed == 'true'
+        env:
+          OLLAMA_CACHE_HIT: ${{ steps.ollama.outputs.model-cache-hit }}
+          OLLAMA_RESTORE_SECONDS: ${{ steps.ollama.outputs.model-restore-seconds }}
+          OLLAMA_DOWNLOAD_SECONDS: ${{ steps.ollama.outputs.model-download-seconds }}
+        run: npx tsx src/daily/prepare.ts --phase fallback
+
+      - name: Check prepared scripts
+        run: npx tsx src/daily/prepare.ts --phase check
+
+      - name: Save prepared scripts
+        if: always() && steps.gemini.outputs.date != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: daily-scripts-${{ steps.gemini.outputs.date }}
+          path: out/daily-scripts/*.json
+          if-no-files-found: warn
+          retention-days: 14
+          overwrite: true
+
+  daily:
+    needs: prepare
+    if: >-
+      !cancelled() &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
       ((github.event_name == 'workflow_dispatch' && inputs.action == 'preview') ||
-       vars.DAILY_PUBLISH_ENABLED == 'true')
+       (vars.DAILY_PUBLISH_ENABLED == 'true' && needs.prepare.result == 'success'))
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     steps:
@@ -48,4 +129,5 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           DAILY_MODE: ${{ github.event_name == 'schedule' && 'scheduled' || inputs.action }}
           DAILY_DATE: ${{ inputs.date }}
+          PREPARED_RUN_ID: ${{ github.run_id }}
         run: npx tsx src/daily/publish.ts

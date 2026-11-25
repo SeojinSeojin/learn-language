@@ -16,6 +16,24 @@ export class QuotaExhaustedError extends UserFacingError {
   }
 }
 
+/**
+ * A text/speech provider was unreachable after its bounded retry policy: the request timed out, or the
+ * server kept answering with a 5xx status. `status` is the last HTTP status (undefined for a timeout).
+ * Callers decide from `reason`/`status` (never from the message) whether a fallback provider may be used.
+ */
+export class ProviderUnavailableError extends UserFacingError {
+  constructor(
+    readonly provider: string,
+    readonly reason: 'timeout' | 'http',
+    message: string,
+    hint?: string,
+    readonly status?: number,
+  ) {
+    super(message, hint);
+    this.name = 'ProviderUnavailableError';
+  }
+}
+
 /** Run a CLI main() with consistent error reporting and exit codes. */
 export async function runCli(main: () => Promise<void>) {
   try {

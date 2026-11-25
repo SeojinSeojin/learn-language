@@ -1,14 +1,17 @@
 // Topic → basic vocabulary list (Mexican Spanish, Korean, English) via Gemini structured output.
 import type { VocabList } from '../../shared/types';
-import { callInteraction, extractText } from '../gemini/client';
-import { normalizeTopic } from '../dialogue/gemini';
+import { normalizeTopic, resolveGenerator } from '../dialogue/gemini';
+import type { TextGenerator } from '../text/provider';
 import { VOCAB_LIMITS, VOCAB_MAX, VOCAB_MIN, VOCAB_REQUEST_COUNT, VocabValidationError, validateVocab, vocabJsonSchema } from './schema';
 
 export interface GenerateVocabOptions {
-  apiKey: string;
-  model: string;
+  /** Gemini credentials (used unless `generator` is given). */
+  apiKey?: string;
+  model?: string;
   timeoutMs?: number;
   retryBaseMs?: number;
+  /** Another text provider (e.g. the local Qwen fallback). Same prompt, schema and validation. */
+  generator?: TextGenerator;
 }
 
 export function buildVocabPrompt(topic: string, previousIssues: string[] = []): string {
@@ -47,6 +50,27 @@ export function buildVocabPrompt(topic: string, previousIssues: string[] = []): 
   return parts.join('\n');
 }
 
+/**
+ * Local models sometimes pad the list to the requested count by repeating earlier words. Drops entries whose
+ * Spanish or Korean word exactly repeats an earlier one (nothing else changes) when at least VOCAB_MIN words
+ * remain; the strict validator still runs afterwards. Used for the Qwen fallback only.
+ */
+export function dropRepeatedWords(raw: unknown): unknown {
+  const words = (raw as { words?: unknown })?.words;
+  if (!Array.isArray(words)) return raw;
+  const key = (v: unknown) => (typeof v === 'string' ? v.normalize('NFC').trim().toLowerCase().replace(/\s+/g, ' ') : undefined);
+  const seen = new Set<string>();
+  const kept = words.filter((w) => {
+    const ks = [key(w?.esMX) && `es:${key(w?.esMX)}`, key(w?.ko) && `ko:${key(w?.ko)}`].filter(Boolean) as string[];
+    if (ks.some((k) => seen.has(k))) return false;
+    ks.forEach((k) => seen.add(k));
+    return true;
+  });
+  if (kept.length === words.length || kept.length < VOCAB_MIN) return raw;
+  console.warn(`  ! Dropped ${words.length - kept.length} repeated word(s) from the local model's list.`);
+  return { ...(raw as object), words: kept };
+}
+
 function parseJsonText(text: string): unknown {
   return JSON.parse(text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
 }
@@ -54,19 +78,14 @@ function parseJsonText(text: string): unknown {
 /** Generates and validates a word list. Retries once with the validation issues. */
 export async function generateVocab(topic: string, opts: GenerateVocabOptions): Promise<VocabList> {
   const cleanTopic = normalizeTopic(topic);
+  const generator = resolveGenerator(opts);
   let issues: string[] = [];
   for (let attempt = 1; attempt <= 2; attempt++) {
-    const interaction = await callInteraction(
-      {
-        model: opts.model,
-        input: buildVocabPrompt(cleanTopic, issues),
-        response_format: { type: 'text', mime_type: 'application/json', schema: vocabJsonSchema() },
-      },
-      { apiKey: opts.apiKey, timeoutMs: opts.timeoutMs, retryBaseMs: opts.retryBaseMs },
-    );
+    const text = await generator.generate(buildVocabPrompt(cleanTopic, issues), vocabJsonSchema());
     let raw: unknown;
     try {
-      raw = parseJsonText(extractText(interaction));
+      raw = parseJsonText(text);
+      if (generator.provider === 'ollama') raw = dropRepeatedWords(raw);
     } catch {
       issues = ['the response was not valid JSON matching the schema'];
       console.warn(`  ! Word list attempt ${attempt}: response was not valid JSON.`);
@@ -80,5 +99,5 @@ export async function generateVocab(topic: string, opts: GenerateVocabOptions): 
       console.warn(`  ! Word list attempt ${attempt} failed validation (${issues.length} issue(s)).`);
     }
   }
-  throw new VocabValidationError(issues, 'Gemini did not produce a valid word list after 2 attempts');
+  throw new VocabValidationError(issues, `${generator.label} did not produce a valid word list after 2 attempts`);
 }

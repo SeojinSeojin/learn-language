@@ -77,15 +77,22 @@ function summary(message: string) {
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, message + '\n');
 }
 
-export async function publishDaily() {
-  const { DAILY_MODE, DAILY_DATE, DEFAULT_BRANCH, GITHUB_RUN_ID } = process.env;
+/** Mode and intended New York date of this Daily run (shared by script preparation and publishing). */
+export async function resolveDailyRun() {
+  const { DAILY_MODE, DAILY_DATE, GITHUB_RUN_ID } = process.env;
   const preview = DAILY_MODE === 'preview';
   const scheduled = DAILY_MODE === 'scheduled';
   if (!preview && !scheduled && DAILY_MODE !== 'retry') throw new Error('Unknown daily publishing mode.');
-  if (!DEFAULT_BRANCH) throw new Error('Default branch missing.');
   const today = nyDate();
   const date = scheduled ? nyDate(new Date((await runDetails(GITHUB_RUN_ID)).created_at)) : DAILY_DATE || today;
   if (DAILY_MODE === 'retry' && (!DAILY_DATE || date > today)) throw new Error('Retry requires an intended date on or before today.');
+  return { date, preview, scheduled };
+}
+
+export async function publishDaily() {
+  const { DEFAULT_BRANCH, GITHUB_RUN_ID, PREPARED_RUN_ID } = process.env;
+  if (!DEFAULT_BRANCH) throw new Error('Default branch missing.');
+  const { date, preview, scheduled } = await resolveDailyRun();
 
   const original = (await readLedger())?.data;
   const day = dailyPlan(date, original);
@@ -106,8 +113,11 @@ export async function publishDaily() {
       if (episode.status !== 'failed' && !isPublished(episode)) await settle(id, episode);
     }
     const ledger = (await readLedger())?.data;
+    // Scripts were prepared and validated earlier in this run (see src/daily/prepare.ts).
+    const preparedRunId = PREPARED_RUN_ID || GITHUB_RUN_ID;
+    if (!preparedRunId) throw new Error('Prepared script run ID missing.');
     for (const episode of pendingEpisodes(day, ledger)) {
-      await dispatch(episode.id, date, DEFAULT_BRANCH, dispatchInputs(episode));
+      await dispatch(episode.id, date, DEFAULT_BRANCH, dispatchInputs(episode, preparedRunId));
     }
   } catch (error) {
     problem = error;

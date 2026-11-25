@@ -1,8 +1,35 @@
 // Low-level Gemini Interactions API client (dialogue + TTS share this).
 // The API key is only ever sent in the x-goog-api-key header and is never logged.
-import { QuotaExhaustedError, UserFacingError } from '../util/errors';
+import { ProviderUnavailableError, QuotaExhaustedError, UserFacingError } from '../util/errors';
 
 export const INTERACTIONS_URL = 'https://generativelanguage.googleapis.com/v1beta/interactions';
+
+/**
+ * Endpoint for Interactions requests. GEMINI_INTERACTIONS_URL may point at a loopback mock server
+ * (the Actions smoke test uses one); any other host is refused so the API key can't be redirected.
+ */
+export function interactionsUrl(override = process.env.GEMINI_INTERACTIONS_URL?.trim()): string {
+  if (!override) return INTERACTIONS_URL;
+  let url: URL;
+  try {
+    url = new URL(override);
+  } catch {
+    throw new UserFacingError(`GEMINI_INTERACTIONS_URL is not a valid URL: "${override}".`);
+  }
+  if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) {
+    throw new UserFacingError('GEMINI_INTERACTIONS_URL may only point at a loopback mock server (http://127.0.0.1:PORT/...).');
+  }
+  return url.href;
+}
+
+let geminiBlocked: string | undefined;
+/**
+ * Refuse every Gemini request from now on in this process (e.g. a Short built from a prepared script
+ * with Edge TTS must make none). Any attempt throws instead of reaching the network.
+ */
+export function blockGeminiRequests(reason: string | undefined) {
+  geminiBlocked = reason;
+}
 export const DEFAULT_TIMEOUT_MS = 120_000;
 /** Longest server-requested wait we honour for a per-minute 429 (free-tier RPM limits). */
 const MAX_QUOTA_RETRY_AFTER_S = 65;
@@ -74,6 +101,8 @@ export async function callInteraction(body: Record<string, unknown>, opts: CallO
   const service = `Gemini (${model})`;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const base = opts.retryBaseMs ?? 2000;
+  if (geminiBlocked) throw new UserFacingError(`${service}: request blocked. ${geminiBlocked}`);
+  const url = interactionsUrl();
   let serverRetries = 0;
   let rateLimitRetries = 0;
 
@@ -83,7 +112,7 @@ export async function callInteraction(body: Record<string, unknown>, opts: CallO
     let res: Response;
     let text: string;
     try {
-      res = await fetch(INTERACTIONS_URL, {
+      res = await fetch(url, {
         method: 'POST',
         headers: { 'x-goog-api-key': opts.apiKey, 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -93,7 +122,13 @@ export async function callInteraction(body: Record<string, unknown>, opts: CallO
     } catch (err) {
       clearTimeout(timer);
       if (controller.signal.aborted) {
-        throw new UserFacingError(`${service}: request timed out after ${Math.round(timeoutMs / 1000)} s.`, 'The Gemini API may be slow or unreachable; try again later.');
+        // Timeouts are not retried (each one already waited timeoutMs). Typed so callers can fall back.
+        throw new ProviderUnavailableError(
+          'gemini',
+          'timeout',
+          `${service}: request timed out after ${Math.round(timeoutMs / 1000)} s.`,
+          'The Gemini API may be slow or unreachable; try again later.',
+        );
       }
       if (serverRetries < MAX_SERVER_RETRIES) {
         serverRetries++;
@@ -146,10 +181,12 @@ export async function callInteraction(body: Record<string, unknown>, opts: CallO
       await sleep(base * 2 ** (serverRetries - 1));
       continue;
     }
-    throw new UserFacingError(
-      `${service}: API error ${res.status}${err.status ? ` ${err.status}` : ''}: ${err.message}`,
-      res.status >= 500 ? 'The Gemini API is having trouble; try again later.' : undefined,
-    );
+    const message = `${service}: API error ${res.status}${err.status ? ` ${err.status}` : ''}: ${err.message}`;
+    if (res.status >= 500) {
+      // Retries exhausted: the server is persistently failing.
+      throw new ProviderUnavailableError('gemini', 'http', message, 'The Gemini API is having trouble; try again later.', res.status);
+    }
+    throw new UserFacingError(message);
   }
 }
 

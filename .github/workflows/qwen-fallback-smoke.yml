@@ -1,0 +1,272 @@
+name: Qwen fallback smoke test
+run-name: Qwen fallback smoke test (${{ inputs.model }})
+
+# Manual only. Needs no Gemini or YouTube credentials and never uploads: Gemini is a loopback mock, Qwen runs
+# for real in Ollama on this GitHub-hosted runner, and the child Short runs use upload=false.
+# It never dispatches the Daily publisher.
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Public Ollama model for the fallback
+        type: choice
+        options:
+          - qwen3:8b
+          - qwen3:4b
+        default: qwen3:8b
+      child_runs:
+        description: Also dispatch Short runs on the prepared JSON (upload=false) to exercise the child path
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qwen-fallback-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  mocked:
+    name: Mocked checks (Gemini healthy skips Ollama)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - name: Unit tests (mocked Gemini and Ollama)
+        run: npm test
+
+      - name: Start mock Gemini (healthy)
+        run: |
+          nohup npx tsx test/support/mock-gemini-server.ts --port 8787 --mode healthy --log out/healthy/gemini-requests.jsonl > out-mock.log 2>&1 &
+          for _ in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:8787/ && break; sleep 1; done
+
+      - name: Prepare scripts with (mock) Gemini
+        id: gemini
+        env:
+          # Not a secret: the loopback mock ignores it. Present only because the Gemini client requires a key.
+          GEMINI_API_KEY: mock-key-not-a-secret
+          GEMINI_INTERACTIONS_URL: http://127.0.0.1:8787/v1beta/interactions
+        run: |
+          npx tsx src/daily/prepare.ts --phase gemini --episodes test/fixtures/smoke-episodes.json \
+            --dir out/healthy/scripts --state out/healthy/state.json
+
+      # Same conditional step as the Daily workflow: must be skipped when Gemini succeeds.
+      - name: Start local Qwen (Gemini outage only)
+        id: ollama
+        if: steps.gemini.outputs.fallback_needed == 'true'
+        uses: ./.github/actions/ollama
+        with:
+          model: ${{ inputs.model }}
+
+      - name: Assert no Ollama setup happened
+        env:
+          OLLAMA_OUTCOME: ${{ steps.ollama.outcome }}
+        run: |
+          test "$OLLAMA_OUTCOME" = "skipped" || { echo "::error::Ollama step ran ($OLLAMA_OUTCOME)"; exit 1; }
+          test ! -e "$HOME/.local/ollama" || { echo "::error::Ollama binary present"; exit 1; }
+          test ! -e "$HOME/.ollama" || { echo "::error::Model directory present"; exit 1; }
+          ! command -v ollama || { echo "::error::ollama on PATH"; exit 1; }
+          ! pgrep -f "ollama serve" || { echo "::error::Ollama is running"; exit 1; }
+          npx tsx test/support/smoke.ts healthy --state out/healthy/state.json --log out/healthy/gemini-requests.jsonl
+          npx tsx src/daily/prepare.ts --phase check --dir out/healthy/scripts --state out/healthy/state.json
+
+  qwen:
+    name: Gemini outage → real Qwen
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    outputs:
+      ok: ${{ steps.assert.outcome == 'success' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Runner resources
+        run: nproc; free -h; df -h / | tail -1
+
+      - name: Start mock Gemini (persistent 503 + timeout)
+        run: |
+          nohup npx tsx test/support/mock-gemini-server.ts --port 8787 --mode outage --log out/smoke/gemini-requests.jsonl > out-mock.log 2>&1 &
+          for _ in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:8787/ && break; sleep 1; done
+
+      # Real client code and real 120 s timeout; only the server is fake.
+      - name: Prepare scripts with (mock) Gemini
+        id: gemini
+        env:
+          # Not a secret: the loopback mock ignores it. Present only because the Gemini client requires a key.
+          GEMINI_API_KEY: mock-key-not-a-secret
+          GEMINI_INTERACTIONS_URL: http://127.0.0.1:8787/v1beta/interactions
+        run: |
+          npx tsx src/daily/prepare.ts --phase gemini --episodes test/fixtures/smoke-episodes.json \
+            --dir out/smoke/scripts --state out/smoke/state.json
+
+      - name: Assert outage classification
+        run: npx tsx test/support/smoke.ts outage --state out/smoke/state.json --log out/smoke/gemini-requests.jsonl
+
+      - name: Start local Qwen (Gemini outage only)
+        id: ollama
+        if: steps.gemini.outputs.fallback_needed == 'true'
+        uses: ./.github/actions/ollama
+        with:
+          model: ${{ inputs.model }}
+
+      - name: Prepare remaining scripts with Qwen
+        env:
+          OLLAMA_CACHE_HIT: ${{ steps.ollama.outputs.model-cache-hit }}
+          OLLAMA_RESTORE_SECONDS: ${{ steps.ollama.outputs.model-restore-seconds }}
+          OLLAMA_DOWNLOAD_SECONDS: ${{ steps.ollama.outputs.model-download-seconds }}
+        run: npx tsx src/daily/prepare.ts --phase fallback --dir out/smoke/scripts --state out/smoke/state.json
+
+      - name: Assert valid output, one Ollama start, one model load
+        id: assert
+        env:
+          OLLAMA_PID: ${{ steps.ollama.outputs.server-pid }}
+        run: |
+          npx tsx test/support/smoke.ts qwen --state out/smoke/state.json --dir out/smoke/scripts \
+            --starts "$RUNNER_TEMP/ollama-starts.log" --pid "$OLLAMA_PID"
+          for f in out/smoke/scripts/*.json; do
+            id=$(basename "$f" .json)
+            node -e 'const p=require(process.argv[1]); console.log(JSON.stringify({id:p.episodeId, provider:p.provider, model:p.model}))' "$PWD/$f"
+            npx tsx src/cli/check-prepared.ts --file="$f" --episode="$id" \
+              --mode="$(node -p 'require(process.argv[1]).mode' "$PWD/$f")" --topic="$(node -p 'require(process.argv[1]).topic' "$PWD/$f")"
+          done
+
+      - name: Invalid Qwen output stops before TTS (child entry point)
+        run: |
+          mkdir -p out/invalid
+          # Break the real Qwen dialogue the way a bad generation would (Latin letters in the Korean line).
+          node -e '
+            const fs = require("fs");
+            const p = JSON.parse(fs.readFileSync("out/smoke/scripts/smoke-dialogue-1.json", "utf8"));
+            p.script.lines[0].ko = "annyeonghaseyo";
+            fs.writeFileSync("out/invalid/smoke-dialogue-1.json", JSON.stringify(p));
+          '
+          topic=$(node -p 'require("./test/fixtures/smoke-episodes.json")[0].topic')
+          set +e
+          TTS_PROVIDER=edge GEMINI_API_KEY= npm run generate -- --mode=dialogue --topic="$topic" \
+            --prepared=out/invalid/smoke-dialogue-1.json --episode=smoke-dialogue-1 --out=out/invalid/job > out/invalid/log.txt 2>&1
+          code=$?
+          set -e
+          cat out/invalid/log.txt
+          test "$code" = "2" || { echo "::error::expected exit 2, got $code"; exit 1; }
+          grep -q "Prepared script for episode smoke-dialogue-1 failed validation" out/invalid/log.txt
+          test ! -e out/invalid/job || { echo "::error::output was created"; exit 1; }
+          echo "✓ Invalid prepared script stopped before TTS (exit 2, nothing synthesized)."
+
+      - name: Run summary
+        if: always() && steps.ollama.outcome == 'success'
+        run: npx tsx test/support/smoke.ts summary --state out/smoke/state.json
+
+      - name: Upload Qwen samples for language review
+        if: always() && steps.assert.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: qwen-samples-${{ github.run_id }}
+          path: out/smoke/scripts/*.json
+          if-no-files-found: error
+          retention-days: 14
+
+      # Same artifact shape as the Daily batch, for the child Short runs below.
+      - name: Upload prepared scripts (child input)
+        if: steps.assert.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: daily-scripts-smoke
+          path: out/smoke/scripts/*.json
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload Ollama logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ollama-logs-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/ollama.log
+            ${{ runner.temp }}/ollama-starts.log
+            ${{ runner.temp }}/ollama-pull.log
+            out/smoke/state.json
+            out/smoke/gemini-requests.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+
+  child:
+    name: Child Short on prepared JSON (no upload)
+    needs: qwen
+    if: inputs.child_runs && needs.qwen.outputs.ok == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    permissions:
+      actions: write # dispatch short.yml with upload=false
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Dispatch, wait and check
+        run: |
+          set -euo pipefail
+          dispatch() { # mode episode topic
+            gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/short.yml/dispatches" \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              -f ref="$GITHUB_REF_NAME" -F return_run_details=true \
+              -f "inputs[mode]=$1" -f "inputs[topic]=$3" -f "inputs[upload]=false" -f "inputs[visibility]=private" \
+              -f "inputs[tts_provider]=edge" -f "inputs[prepared_script]=$GITHUB_RUN_ID/$2" \
+              --jq .workflow_run_id
+          }
+          wait_run() {
+            for _ in $(seq 1 140); do
+              status=$(gh run view "$1" --json status --jq .status)
+              [ "$status" = "completed" ] && return 0
+              sleep 30
+            done
+            echo "::error::run $1 did not finish"; return 1
+          }
+          url() { echo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$1"; }
+          d_topic=$(jq -r '.[0].topic' test/fixtures/smoke-episodes.json)
+          v_topic=$(jq -r '.[1].topic' test/fixtures/smoke-episodes.json)
+          d=$(dispatch dialogue smoke-dialogue-1 "$d_topic")
+          v=$(dispatch vocab smoke-vocab-1 "$v_topic")
+          m=$(dispatch dialogue smoke-missing-1 "$d_topic")
+          echo "dialogue $(url "$d")"; echo "vocab $(url "$v")"; echo "missing $(url "$m")"
+          wait_run "$d"; wait_run "$v"; wait_run "$m"
+
+          fail=0
+          {
+            echo "### Child Short runs on prepared JSON (measured, upload=false)"
+            echo
+            echo "| Case | Run | Generate | Upload |"
+            echo "| --- | --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for pair in "dialogue:$d" "vocab:$v"; do
+            name=${pair%%:*}; id=${pair#*:}
+            gen=$(gh run view "$id" --json jobs --jq '.jobs[] | select(.name=="Generate Short") | .conclusion')
+            up=$(gh run view "$id" --json jobs --jq '[.jobs[] | select(.name=="Upload to YouTube") | .conclusion][0] // "not run"')
+            echo "| $name | [$id]($(url "$id")) | $gen | $up |" >> "$GITHUB_STEP_SUMMARY"
+            [ "$gen" = "success" ] || { echo "::error::$name child failed: $(url "$id")"; fail=1; }
+            [ "$up" = "skipped" ] || [ "$up" = "not run" ] || { echo "::error::$name upload job was $up"; fail=1; }
+            gh run view "$id" --log > "child-$name.log" # saved first: grep -q on a pipe trips pipefail (SIGPIPE)
+            grep -q "Using prepared script for smoke-$name-1" "child-$name.log" || { echo "::error::$name did not use the prepared script"; fail=1; }
+          done
+          mconc=$(gh run view "$m" --json conclusion --jq .conclusion)
+          echo "| missing file | [$m]($(url "$m")) | $mconc (expected failure) | not run |" >> "$GITHUB_STEP_SUMMARY"
+          [ "$mconc" = "failure" ] || { echo "::error::missing-file child should fail"; fail=1; }
+          gh run view "$m" --log-failed > child-missing.log
+          grep -q "Prepared script for episode smoke-missing-1 is missing" child-missing.log \
+            || { echo "::error::missing-file child did not report the missing file clearly"; fail=1; }
+          exit $fail
