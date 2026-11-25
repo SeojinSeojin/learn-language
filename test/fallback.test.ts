@@ -14,6 +14,7 @@ import { checkPrepared, prepareWithGemini, prepareWithOllama, type BatchState } 
 import { PreparedScriptError, preparedFile, readPreparedScript, writePreparedScript, type EpisodeRef } from '../src/prepared/script';
 import { SAMPLE_DIALOGUE } from '../src/dialogue/sample';
 import { SAMPLE_VOCAB } from '../src/vocab/sample';
+import { dropRepeatedWords } from '../src/vocab/gemini';
 import { DialogueValidationError, dialogueJsonSchema } from '../src/dialogue/schema';
 import { ProviderUnavailableError, QuotaExhaustedError, UserFacingError } from '../src/util/errors';
 
@@ -248,4 +249,20 @@ test('a prepared Edge TTS run blocks every Gemini request before it reaches the 
   } finally {
     blockGeminiRequests(undefined);
   }
+});
+
+test('Qwen word lists padded with repeats keep the distinct words; too few distinct words still fail validation', async () => {
+  const words = SAMPLE_VOCAB.words; // 10 distinct
+  const padded = { words: [...words, words[0], { ...words[1], en: 'x' }], hashtags: [] };
+  assert.equal((dropRepeatedWords(padded) as { words: unknown[] }).words.length, 10);
+  const tooFew = { words: [...words.slice(0, 7), words[0], words[1]] };
+  assert.equal(dropRepeatedWords(tooFew), tooFew, 'left for the validator to reject');
+
+  const dir = tmp();
+  const stateFile = join(dir, 'state.json');
+  writeFileSync(stateFile, JSON.stringify({ date: 'test', episodes: [EPISODES[1]], results: {}, fallback: [{ id: EPISODES[1].id, reason: 'timeout', message: 'x' }] }));
+  ollamaMock(() => padded);
+  const state = await prepareWithOllama({ dir, stateFile });
+  assert.equal(readPreparedScript(preparedFile(dir, EPISODES[1].id), EPISODES[1]).script.topic, EPISODES[1].topic);
+  assert.equal(state.results[EPISODES[1].id].requests, 1);
 });

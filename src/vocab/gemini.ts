@@ -50,6 +50,27 @@ export function buildVocabPrompt(topic: string, previousIssues: string[] = []): 
   return parts.join('\n');
 }
 
+/**
+ * Local models sometimes pad the list to the requested count by repeating earlier words. Drops entries whose
+ * Spanish or Korean word exactly repeats an earlier one (nothing else changes) when at least VOCAB_MIN words
+ * remain; the strict validator still runs afterwards. Used for the Qwen fallback only.
+ */
+export function dropRepeatedWords(raw: unknown): unknown {
+  const words = (raw as { words?: unknown })?.words;
+  if (!Array.isArray(words)) return raw;
+  const key = (v: unknown) => (typeof v === 'string' ? v.normalize('NFC').trim().toLowerCase().replace(/\s+/g, ' ') : undefined);
+  const seen = new Set<string>();
+  const kept = words.filter((w) => {
+    const ks = [key(w?.esMX) && `es:${key(w?.esMX)}`, key(w?.ko) && `ko:${key(w?.ko)}`].filter(Boolean) as string[];
+    if (ks.some((k) => seen.has(k))) return false;
+    ks.forEach((k) => seen.add(k));
+    return true;
+  });
+  if (kept.length === words.length || kept.length < VOCAB_MIN) return raw;
+  console.warn(`  ! Dropped ${words.length - kept.length} repeated word(s) from the local model's list.`);
+  return { ...(raw as object), words: kept };
+}
+
 function parseJsonText(text: string): unknown {
   return JSON.parse(text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
 }
@@ -64,6 +85,7 @@ export async function generateVocab(topic: string, opts: GenerateVocabOptions): 
     let raw: unknown;
     try {
       raw = parseJsonText(text);
+      if (generator.provider === 'ollama') raw = dropRepeatedWords(raw);
     } catch {
       issues = ['the response was not valid JSON matching the schema'];
       console.warn(`  ! Word list attempt ${attempt}: response was not valid JSON.`);
