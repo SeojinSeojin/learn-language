@@ -12,8 +12,10 @@
     "d01-dialogue-2": {
       "date": "2026-11-25",
       "controller": "45677553013/4",
-      "status": "uploading",
-      "runId": 45714104471
+      "status": "published",
+      "runId": 45714104471,
+      "videoId": "9D7Giu_d7Qs",
+      "visibility": "public"
     },
     "d01-dialogue-3": {
       "date": "2026-11-25",
