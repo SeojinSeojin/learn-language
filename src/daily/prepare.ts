@@ -2,8 +2,10 @@
 //
 //   --phase gemini    Gemini (primary) for every pending episode without a valid prepared file. Episodes whose
 //                     Gemini request timed out or kept returning 503 after the client's bounded retries are
-//                     recorded for the fallback; any other error stops the batch. Sets the step outputs
-//                     `date`, `fallback_needed` and `fallback_count`.
+//                     recorded for the fallback. After the first confirmed Gemini daily-quota error, Gemini is
+//                     not called again in this batch: valid files are still reused and every other remaining
+//                     episode goes to the fallback. Any other error stops the batch. Sets the step outputs
+//                     `date`, `fallback_needed`, `fallback_count` and `gemini_daily_quota`.
 //   --phase fallback  Only when fallback_needed: the local Ollama server (started once by
 //                     .github/actions/ollama) loads the model once and generates the recorded episodes.
 //   --phase check     Re-validates every prepared file of the batch.
@@ -20,7 +22,7 @@ import { resolveDailyRun } from './publish';
 import { github, readLedger } from './state';
 import { generateDialogue } from '../dialogue/gemini';
 import { generateVocab } from '../vocab/gemini';
-import { geminiTextGenerator, isGeminiFallbackEligible, type TextGenerator } from '../text/provider';
+import { geminiTextGenerator, isGeminiDailyQuotaExhausted, isGeminiFallbackEligible, type TextGenerator } from '../text/provider';
 import { ollamaLoadModel, ollamaModel, ollamaTextGenerator, ollamaVersion, type OllamaCallStats } from '../ollama/client';
 import { assertEpisodeId, preparedFile, PreparedScriptError, readPreparedScript, writePreparedScript, type EpisodeRef } from '../prepared/script';
 import { DEFAULT_GEMINI_MODEL, optionalEnv, parseArgs, requireEnv } from '../util/env';
@@ -39,9 +41,12 @@ export interface EpisodeResult {
 
 export interface FallbackRecord {
   id: string;
-  reason: 'timeout' | 'http';
+  /** timeout / http (503): this episode's Gemini call failed. daily-quota: the call hit, or followed, the daily quota. */
+  reason: 'timeout' | 'http' | 'daily-quota';
   status?: number;
   message: string;
+  /** False when Gemini was not called for this episode because the daily quota was already exhausted. */
+  geminiCalled: boolean;
 }
 
 export interface BatchState {
@@ -49,6 +54,8 @@ export interface BatchState {
   episodes: EpisodeRef[];
   results: Record<string, EpisodeResult>;
   fallback: FallbackRecord[];
+  /** Set on the first confirmed Gemini daily-quota error; Gemini is not called again in this batch. */
+  geminiDailyQuota?: { episodeId: string; message: string };
   ollama?: { model: string; version: string; loadSeconds: number; cacheHit?: string; restoreSeconds?: string; downloadSeconds?: string };
 }
 
@@ -128,6 +135,11 @@ export async function prepareWithGemini(opts: { dir: string; stateFile: string; 
           rmSync(file);
         }
       }
+      if (state.geminiDailyQuota) {
+        state.fallback.push({ id: episode.id, reason: 'daily-quota', message: 'Gemini daily quota exhausted earlier in this batch.', geminiCalled: false });
+        console.warn(`! ${episode.id}: Gemini daily quota exhausted earlier in this batch → queued for the local Qwen fallback (Gemini not called).`);
+        continue;
+      }
       const generator = getGemini();
       const t0 = performance.now();
       try {
@@ -136,8 +148,14 @@ export async function prepareWithGemini(opts: { dir: string; stateFile: string; 
         state.results[episode.id] = { provider: 'gemini', model: generator.model, seconds: secs(performance.now() - t0) };
         console.log(`✓ ${episode.id}: ${episode.mode} script from Gemini (${generator.model}) in ${secs(performance.now() - t0)} s.`);
       } catch (err) {
+        if (isGeminiDailyQuotaExhausted(err)) {
+          state.geminiDailyQuota = { episodeId: episode.id, message: err.message };
+          state.fallback.push({ id: episode.id, reason: 'daily-quota', status: 429, message: err.message, geminiCalled: true });
+          console.warn(`! ${episode.id}: Gemini daily quota exhausted (${err.message}) → this and every remaining episode without a script go to the local Qwen fallback.`);
+          continue;
+        }
         if (!isGeminiFallbackEligible(err)) throw err;
-        state.fallback.push({ id: episode.id, reason: err.reason, status: err.status, message: err.message });
+        state.fallback.push({ id: episode.id, reason: err.reason, status: err.status, message: err.message, geminiCalled: true });
         console.warn(`! ${episode.id}: ${err.message} → queued for the local Qwen fallback.`);
       }
     }
@@ -214,7 +232,9 @@ export function summarizeBatch(state: BatchState): string {
     const r = state.results[e.id];
     const failed = state.fallback.find((f) => f.id === e.id);
     const source = r ? `${r.provider} \`${r.model}\`${r.reused ? ' (reused)' : ''}` : failed ? 'pending fallback' : 'not prepared';
-    const gemini = failed ? (failed.reason === 'timeout' ? 'timeout' : `HTTP ${failed.status}`) : r?.provider === 'gemini' && !r.reused ? 'ok' : '—';
+    const gemini = failed
+      ? failed.reason === 'timeout' ? 'timeout' : failed.reason === 'daily-quota' ? (failed.geminiCalled ? 'daily quota exhausted' : 'not called (daily quota)') : `HTTP ${failed.status}`
+      : r?.provider === 'gemini' && !r.reused ? 'ok' : '—';
     return `| \`${e.id}\` | ${e.mode} | ${gemini} | ${source} | ${r && !r.reused ? r.seconds : '—'} |`;
   });
   const lines = [
@@ -224,6 +244,21 @@ export function summarizeBatch(state: BatchState): string {
     '| --- | --- | --- | --- | ---: |',
     ...rows,
   ];
+  const ids = (pick: (r: EpisodeResult) => boolean) => {
+    const list = state.episodes.filter((e) => state.results[e.id] && pick(state.results[e.id])).map((e) => `\`${e.id}\``);
+    return list.length ? list.join(', ') : 'none';
+  };
+  lines.push(
+    '',
+    `- Reused: ${ids((r) => Boolean(r.reused))}`,
+    `- Generated by Gemini: ${ids((r) => r.provider === 'gemini' && !r.reused)}`,
+    `- Generated by Qwen: ${ids((r) => r.provider === 'ollama' && !r.reused)}`,
+  );
+  if (state.geminiDailyQuota) {
+    const q = state.geminiDailyQuota;
+    const skipped = state.fallback.filter((f) => !f.geminiCalled).length;
+    lines.splice(2, 0, `> **Gemini daily quota exhausted** at \`${q.episodeId}\`: ${q.message.replace(/\s+/g, ' ')} Gemini was not called for the ${skipped} remaining episode(s) that still needed a script.`, '');
+  }
   if (state.ollama) {
     const o = state.ollama;
     lines.push(
@@ -275,6 +310,7 @@ async function main() {
       throw err;
     }
     summary(summarizeBatch(state));
+    setOutput('gemini_daily_quota', Boolean(state.geminiDailyQuota));
     setOutput('fallback_needed', state.fallback.length > 0);
     setOutput('fallback_count', state.fallback.length);
   } else if (phase === 'fallback') {

@@ -1,0 +1,22 @@
+[
+  {
+    "id": "quota-dialogue-1",
+    "mode": "dialogue",
+    "topic": "At a language meetup, Lupita and Jisoo read their name tags and introduce themselves with me llamo and mucho gusto."
+  },
+  {
+    "id": "quota-vocab-1",
+    "mode": "vocab",
+    "topic": "Objects at a language meetup check-in table, featuring la etiqueta con el nombre."
+  },
+  {
+    "id": "quota-dialogue-2",
+    "mode": "dialogue",
+    "topic": "Lupita and Jisoo set down their backpacks and ask ¿de dónde eres? They are from Mexico and Korea."
+  },
+  {
+    "id": "quota-vocab-2",
+    "mode": "vocab",
+    "topic": "Familiar objects in a language classroom, featuring el libro."
+  }
+]

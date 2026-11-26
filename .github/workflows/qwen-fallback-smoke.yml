@@ -3,6 +3,7 @@ run-name: Qwen fallback smoke test (${{ inputs.model }})
 
 # Manual only. Needs no Gemini or YouTube credentials and never uploads: Gemini is a loopback mock, Qwen runs
 # for real in Ollama on this GitHub-hosted runner, and the child Short runs use upload=false.
+# Scenarios: Gemini healthy (Ollama skipped), Gemini outage (503 + timeout), Gemini daily quota mid-batch.
 # It never dispatches the Daily publisher.
 on:
   workflow_dispatch:
@@ -200,6 +201,96 @@ jobs:
             ${{ runner.temp }}/ollama-pull.log
             out/smoke/state.json
             out/smoke/gemini-requests.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+
+  quota:
+    name: Gemini daily quota → real Qwen
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+
+      # Production run 45741747083: Gemini answered the first request, then HTTP 429
+      # "… limit: 20 requests per day on Free Tier …". Only the server is fake.
+      - name: Start mock Gemini (daily quota after one request)
+        run: |
+          nohup npx tsx test/support/mock-gemini-server.ts --port 8787 --mode daily-quota --log out/quota/gemini-requests.jsonl > out-mock.log 2>&1 &
+          for _ in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:8787/ && break; sleep 1; done
+
+      - name: Seed a restored script (quota-vocab-2)
+        run: npx tsx test/support/smoke.ts seed --episodes test/fixtures/smoke-quota-episodes.json --id quota-vocab-2 --dir out/quota/scripts
+
+      - name: Prepare scripts with (mock) Gemini
+        id: gemini
+        env:
+          # Not a secret: the loopback mock ignores it. Present only because the Gemini client requires a key.
+          GEMINI_API_KEY: mock-key-not-a-secret
+          GEMINI_INTERACTIONS_URL: http://127.0.0.1:8787/v1beta/interactions
+        run: |
+          npx tsx src/daily/prepare.ts --phase gemini --episodes test/fixtures/smoke-quota-episodes.json \
+            --dir out/quota/scripts --state out/quota/state.json
+
+      - name: Assert daily-quota handling
+        env:
+          DAILY_QUOTA: ${{ steps.gemini.outputs.gemini_daily_quota }}
+        run: |
+          test "$DAILY_QUOTA" = "true" || { echo "::error::gemini_daily_quota output was '$DAILY_QUOTA'"; exit 1; }
+          npx tsx test/support/smoke.ts quota --state out/quota/state.json --log out/quota/gemini-requests.jsonl --dir out/quota/scripts
+
+      - name: Start local Qwen (Gemini outage or daily quota only)
+        id: ollama
+        if: steps.gemini.outputs.fallback_needed == 'true'
+        uses: ./.github/actions/ollama
+        with:
+          model: ${{ inputs.model }}
+
+      - name: Prepare remaining scripts with Qwen
+        env:
+          OLLAMA_CACHE_HIT: ${{ steps.ollama.outputs.model-cache-hit }}
+          OLLAMA_RESTORE_SECONDS: ${{ steps.ollama.outputs.model-restore-seconds }}
+          OLLAMA_DOWNLOAD_SECONDS: ${{ steps.ollama.outputs.model-download-seconds }}
+        run: npx tsx src/daily/prepare.ts --phase fallback --dir out/quota/scripts --state out/quota/state.json
+
+      - name: Assert sources, preserved JSON, one Ollama start
+        id: assert
+        env:
+          OLLAMA_PID: ${{ steps.ollama.outputs.server-pid }}
+        run: |
+          npx tsx test/support/smoke.ts quota-final --state out/quota/state.json --dir out/quota/scripts \
+            --starts "$RUNNER_TEMP/ollama-starts.log" --pid "$OLLAMA_PID"
+          npx tsx src/daily/prepare.ts --phase check --dir out/quota/scripts --state out/quota/state.json
+
+      - name: Run summary
+        if: always() && steps.ollama.outcome == 'success'
+        run: npx tsx test/support/smoke.ts summary --state out/quota/state.json --title "Gemini daily quota → Qwen smoke test"
+
+      - name: Upload daily-quota scripts for review
+        if: always() && steps.assert.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: qwen-quota-samples-${{ github.run_id }}
+          path: out/quota/scripts/*.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: quota-logs-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/ollama.log
+            ${{ runner.temp }}/ollama-starts.log
+            out/quota/state.json
+            out/quota/gemini-requests.jsonl
           if-no-files-found: ignore
           retention-days: 7
 

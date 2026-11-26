@@ -1,6 +1,6 @@
 // Low-level Gemini Interactions API client (dialogue + TTS share this).
 // The API key is only ever sent in the x-goog-api-key header and is never logged.
-import { ProviderUnavailableError, QuotaExhaustedError, UserFacingError } from '../util/errors';
+import { ProviderUnavailableError, QuotaExhaustedError, UserFacingError, type QuotaScope } from '../util/errors';
 
 export const INTERACTIONS_URL = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 
@@ -58,6 +58,8 @@ interface ParsedError {
   message: string;
   status?: string;
   retryDelayS?: number;
+  /** quotaId values from google.rpc.QuotaFailure details, e.g. "GenerateRequestsPerDayPerProjectPerModel-FreeTier". */
+  quotaIds: string[];
 }
 
 function parseErrorBody(text: string): ParsedError {
@@ -65,7 +67,7 @@ function parseErrorBody(text: string): ParsedError {
   try {
     json = JSON.parse(text);
   } catch {
-    return { message: text.trim().slice(0, 500) };
+    return { message: text.trim().slice(0, 500), quotaIds: [] };
   }
   // Google's standard shape is {error:{code,message,status,details}}; some proxies wrap it in an array.
   const root = Array.isArray(json) ? json[0] : json;
@@ -74,13 +76,35 @@ function parseErrorBody(text: string): ParsedError {
   const message = typeof err?.message === 'string' ? err.message : typeof err === 'string' ? err : text.trim().slice(0, 500);
   const status = typeof err?.status === 'string' ? err.status : undefined;
   let retryDelayS: number | undefined;
+  const quotaIds: string[] = [];
   if (Array.isArray(err?.details)) {
     for (const d of err.details) {
       const m = typeof d?.retryDelay === 'string' ? /^([\d.]+)s$/.exec(d.retryDelay) : null;
       if (m) retryDelayS = Number(m[1]);
+      if (Array.isArray(d?.violations)) {
+        for (const v of d.violations) {
+          const id = typeof v?.quotaId === 'string' ? v.quotaId : typeof v?.quotaMetric === 'string' ? v.quotaMetric : undefined;
+          if (id) quotaIds.push(id);
+        }
+      }
     }
   }
-  return { message, status, retryDelayS };
+  return { message, status, retryDelayS, quotaIds };
+}
+
+/**
+ * Daily vs short-lived quota for a 429. Structured QuotaFailure details win when present ("…PerDay…" vs
+ * "…PerMinute…"); otherwise the API's message must say so, as in the observed free-tier error
+ * "Rate limit exceeded for model gemini-3.6-flash (limit: 20 requests per day on Free Tier). Please retry
+ * in 5h39m1s…". A bare 429 / RESOURCE_EXHAUSTED is `unknown`, never daily.
+ */
+export function quotaScope(err: { message: string; quotaIds?: string[] }): QuotaScope {
+  const ids = err.quotaIds ?? [];
+  if (ids.some((id) => /per[_-]?day/i.test(id))) return 'daily';
+  if (ids.some((id) => /per[_-]?(minute|second)/i.test(id))) return 'short';
+  if (/\brequests?\s+per\s+day\b|\bper\s+day\b|\bRPD\b|\bdaily\s+(request\s+)?(quota|limit)\b/i.test(err.message)) return 'daily';
+  if (/\bper\s+(minute|second)\b|\bRPM\b|\bTPM\b/i.test(err.message)) return 'short';
+  return 'unknown';
 }
 
 function parseRetryAfter(header: string | null): number | undefined {
@@ -152,14 +176,15 @@ export async function callInteraction(body: Record<string, unknown>, opts: CallO
       const wait = parseRetryAfter(res.headers.get('retry-after')) ?? err.retryDelayS;
       // A per-day / exhausted quota stops immediately. A per-minute rate limit with a short
       // server-suggested delay is waited out (still free tier), a bounded number of times.
-      const daily = /per day|daily|RPD|exhausted your/i.test(err.message);
-      if (!daily && rateLimitRetries < MAX_RATE_LIMIT_RETRIES && wait !== undefined && wait <= MAX_QUOTA_RETRY_AFTER_S) {
+      const scope = quotaScope(err);
+      const noRetry = scope === 'daily' || /daily|exhausted your/i.test(err.message);
+      if (!noRetry && rateLimitRetries < MAX_RATE_LIMIT_RETRIES && wait !== undefined && wait <= MAX_QUOTA_RETRY_AFTER_S) {
         rateLimitRetries++;
         console.warn(`  … ${service}: per-minute free-tier rate limit hit; waiting ${Math.ceil(wait)} s as the API asks (retry ${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES}).`);
         await sleep(wait * 1000 + (wait > 0 ? 500 : 0));
         continue;
       }
-      throw new QuotaExhaustedError(service, err.message, QUOTA_HINT);
+      throw new QuotaExhaustedError(service, err.message, QUOTA_HINT, { provider: 'gemini', model, scope });
     }
     if (res.status === 400) {
       throw new UserFacingError(`${service}: request rejected (400 ${err.status ?? 'INVALID_ARGUMENT'}): ${err.message}`);

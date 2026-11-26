@@ -1,7 +1,7 @@
 // Text providers for script generation. The dialogue/vocab generators own the prompts, retry-with-issues
 // loop and Zod validation; a provider only turns (prompt, JSON schema) into raw JSON text.
 import { callInteraction, extractText } from '../gemini/client';
-import { ProviderUnavailableError } from '../util/errors';
+import { ProviderUnavailableError, QuotaExhaustedError } from '../util/errors';
 
 export interface TextGenerator {
   /** Short name used in logs and error messages, e.g. "Gemini" or "Qwen (qwen3:8b via Ollama)". */
@@ -38,8 +38,17 @@ export function geminiTextGenerator(opts: GeminiTextOptions): TextGenerator {
 export const FALLBACK_HTTP_STATUSES: readonly number[] = [503];
 
 /**
- * True only for a Gemini outage after its retry policy is exhausted: a request timeout or a persistent
- * HTTP 503. Quota (429), auth, bad-request and validation errors never fall back.
+ * Gemini confirmed that the daily request quota is used up (QuotaFailure "…PerDay…" or the API's
+ * "requests per day" message). A short-lived per-minute limit or a bare 429 is not this.
+ */
+export function isGeminiDailyQuotaExhausted(err: unknown): err is QuotaExhaustedError {
+  return err instanceof QuotaExhaustedError && err.provider === 'gemini' && err.scope === 'daily';
+}
+
+/**
+ * True only for a Gemini outage after its retry policy is exhausted (a request timeout or a persistent
+ * HTTP 503). Short-lived or unconfirmed quota (429), auth, bad-request and validation errors never fall back;
+ * a confirmed daily quota is handled separately by isGeminiDailyQuotaExhausted.
  */
 export function isGeminiFallbackEligible(err: unknown): err is ProviderUnavailableError {
   return (

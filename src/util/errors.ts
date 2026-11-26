@@ -8,11 +8,23 @@ export class UserFacingError extends Error {
   }
 }
 
+/**
+ * Which limit a quota error hit: `daily` (requests-per-day, confirmed by quota details or the API's message),
+ * `short` (per-minute requests/tokens), or `unknown` (a 429 without enough information to tell).
+ */
+export type QuotaScope = 'daily' | 'short' | 'unknown';
+
 /** A free-tier quota or rate limit was exhausted. Never retried with a paid fallback. */
 export class QuotaExhaustedError extends UserFacingError {
-  constructor(service: string, detail: string, hint?: string) {
+  readonly provider?: string;
+  readonly model?: string;
+  readonly scope: QuotaScope;
+  constructor(service: string, detail: string, hint?: string, info: { provider?: string; model?: string; scope?: QuotaScope } = {}) {
     super(`${service}: free-tier quota or rate limit exhausted. ${detail}`.trim(), hint);
     this.name = 'QuotaExhaustedError';
+    this.provider = info.provider;
+    this.model = info.model;
+    this.scope = info.scope ?? 'unknown';
   }
 }
 

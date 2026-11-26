@@ -7,10 +7,10 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { blockGeminiRequests, callInteraction, interactionsUrl } from '../src/gemini/client';
-import { geminiTextGenerator, isGeminiFallbackEligible } from '../src/text/provider';
+import { blockGeminiRequests, callInteraction, interactionsUrl, quotaScope } from '../src/gemini/client';
+import { geminiTextGenerator, isGeminiDailyQuotaExhausted, isGeminiFallbackEligible } from '../src/text/provider';
 import { ollamaBaseUrl, ollamaModel, DEFAULT_OLLAMA_MODEL } from '../src/ollama/client';
-import { checkPrepared, prepareWithGemini, prepareWithOllama, type BatchState } from '../src/daily/prepare';
+import { checkPrepared, prepareWithGemini, prepareWithOllama, summarizeBatch, type BatchState } from '../src/daily/prepare';
 import { PreparedScriptError, preparedFile, readPreparedScript, writePreparedScript, type EpisodeRef } from '../src/prepared/script';
 import { SAMPLE_DIALOGUE } from '../src/dialogue/sample';
 import { SAMPLE_VOCAB } from '../src/vocab/sample';
@@ -179,7 +179,7 @@ test('invalid Qwen output stops the batch: no file is written for the episode', 
   const dir = tmp();
   const stateFile = join(dir, 'state.json');
   const bad = { ...dialogueRaw, lines: dialogueRaw.lines.map((l) => ({ ...l, ko: 'annyeong' })) };
-  const state: BatchState = { date: 'test', episodes: [EPISODES[0]], results: {}, fallback: [{ id: EPISODES[0].id, reason: 'timeout', message: 'x' }] };
+  const state: BatchState = { date: 'test', episodes: [EPISODES[0]], results: {}, fallback: [{ id: EPISODES[0].id, reason: 'timeout', message: 'x', geminiCalled: true }] };
   writeFileSync(stateFile, JSON.stringify(state));
   const calls = ollamaMock(() => bad);
   await assert.rejects(prepareWithOllama({ dir, stateFile }), (err: unknown) => {
@@ -260,9 +260,135 @@ test('Qwen word lists padded with repeats keep the distinct words; too few disti
 
   const dir = tmp();
   const stateFile = join(dir, 'state.json');
-  writeFileSync(stateFile, JSON.stringify({ date: 'test', episodes: [EPISODES[1]], results: {}, fallback: [{ id: EPISODES[1].id, reason: 'timeout', message: 'x' }] }));
+  writeFileSync(stateFile, JSON.stringify({ date: 'test', episodes: [EPISODES[1]], results: {}, fallback: [{ id: EPISODES[1].id, reason: 'timeout', message: 'x', geminiCalled: true }] }));
   ollamaMock(() => padded);
   const state = await prepareWithOllama({ dir, stateFile });
   assert.equal(readPreparedScript(preparedFile(dir, EPISODES[1].id), EPISODES[1]).script.topic, EPISODES[1].topic);
   assert.equal(state.results[EPISODES[1].id].requests, 1);
+});
+
+// ── Gemini daily quota (production run 45741747083) ─────────────────────────────────────────────────────
+const PRODUCTION_DAILY_QUOTA =
+  'Rate limit exceeded for model gemini-3.6-flash (limit: 20 requests per day on Free Tier). Please retry in 5h39m1s or upgrade your tier at https://ai.dev/rate-limit.';
+const dailyQuota429 = () => json({ error: { code: 429, message: PRODUCTION_DAILY_QUOTA, status: 'RESOURCE_EXHAUSTED' } }, 429);
+
+test('the production daily-quota 429 is a typed daily-quota error: no retry, not an outage fallback', async () => {
+  const calls = mockFetch(() => dailyQuota429());
+  await assert.rejects(callInteraction({ model: 'gemini-3.6-flash' }, { apiKey: 'k', retryBaseMs: 0 }), (err: unknown) => {
+    assert.ok(err instanceof QuotaExhaustedError);
+    assert.equal(err.scope, 'daily');
+    assert.equal(err.provider, 'gemini');
+    assert.equal(err.model, 'gemini-3.6-flash');
+    assert.ok(err.message.includes(PRODUCTION_DAILY_QUOTA));
+    assert.ok(isGeminiDailyQuotaExhausted(err));
+    assert.equal(isGeminiFallbackEligible(err), false);
+    return true;
+  });
+  assert.equal(calls.length, 1, 'a daily quota is never retried');
+});
+
+test('quota scope: structured QuotaFailure details win; the message is used only without them; a bare 429 is unknown', () => {
+  const ids = (...quotaIds: string[]) => ({ message: 'Resource has been exhausted (e.g. check quota).', quotaIds });
+  assert.equal(quotaScope(ids('GenerateRequestsPerDayPerProjectPerModel-FreeTier')), 'daily');
+  assert.equal(quotaScope(ids('GenerateRequestsPerMinutePerProjectPerModel-FreeTier')), 'short');
+  assert.equal(quotaScope(ids('GenerateContentInputTokensPerModelPerMinute-FreeTier')), 'short');
+  // Structured per-minute details override a message that mentions days.
+  assert.equal(quotaScope({ message: PRODUCTION_DAILY_QUOTA, quotaIds: ['GenerateRequestsPerMinutePerProjectPerModel-FreeTier'] }), 'short');
+  assert.equal(quotaScope({ message: PRODUCTION_DAILY_QUOTA }), 'daily');
+  assert.equal(quotaScope({ message: 'limit: 3 requests per minute' }), 'short');
+  assert.equal(quotaScope({ message: 'Resource has been exhausted (e.g. check quota).' }), 'unknown');
+  assert.equal(quotaScope({ message: '' }), 'unknown');
+});
+
+test('structured per-day QuotaFailure is daily; a generic 429 is not, and never reaches Qwen', async () => {
+  mockFetch(() => json({ error: { code: 429, message: 'Resource has been exhausted (e.g. check quota).', status: 'RESOURCE_EXHAUSTED', details: [
+    { '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [{ quotaMetric: 'generativelanguage.googleapis.com/generate_content_free_tier_requests', quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier' }] },
+    { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '20341s' },
+  ] } }, 429));
+  await assert.rejects(callInteraction({ model: 'm' }, { apiKey: 'k' }), (err: unknown) => isGeminiDailyQuotaExhausted(err));
+
+  mockFetch(() => json({ error: { code: 429, message: 'Resource has been exhausted (e.g. check quota).', status: 'RESOURCE_EXHAUSTED' } }, 429));
+  const dir = tmp();
+  await assert.rejects(
+    prepareWithGemini({ dir, stateFile: join(dir, 'state.json'), date: 'test', episodes: EPISODES, gemini: gemini() }),
+    (err: unknown) => err instanceof QuotaExhaustedError && err.scope === 'unknown' && !isGeminiDailyQuotaExhausted(err),
+  );
+});
+
+test('a transient per-minute 429 still follows the bounded retry path and then succeeds', async () => {
+  const perMinute = () => json({ error: { code: 429, message: 'Quota exceeded: limit 3 requests per minute', status: 'RESOURCE_EXHAUSTED', details: [
+    { '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [{ quotaId: 'GenerateRequestsPerMinutePerProjectPerModel-FreeTier' }] },
+    { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '0s' },
+  ] } }, 429);
+  let calls = mockFetch(() => (calls.length <= 2 ? perMinute() : json(textInteraction('{"ok":true}'))));
+  await callInteraction({ model: 'm' }, { apiKey: 'k' });
+  assert.equal(calls.length, 3, '2 waited-out per-minute limits, then success');
+
+  calls = mockFetch(() => perMinute());
+  await assert.rejects(callInteraction({ model: 'm' }, { apiKey: 'k' }), (err: unknown) => {
+    assert.ok(err instanceof QuotaExhaustedError && err.scope === 'short');
+    return !isGeminiDailyQuotaExhausted(err) && !isGeminiFallbackEligible(err);
+  });
+  assert.equal(calls.length, 4, 'bounded: 1 + 3 retries');
+});
+
+test('daily quota mid-batch: Gemini stops, earlier JSON is kept, a later valid file is reused, Qwen does the rest', async () => {
+  const dir = tmp();
+  const stateFile = join(dir, 'state.json');
+  const batch: EpisodeRef[] = [
+    { id: 'q-dialogue-1', mode: 'dialogue', topic: 'Ordering tacos at a street stand' },
+    { id: 'q-vocab-1', mode: 'vocab', topic: 'Fruits at the market' },
+    { id: 'q-dialogue-2', mode: 'dialogue', topic: 'Asking for directions to the bus stop' },
+    { id: 'q-vocab-2', mode: 'vocab', topic: 'Things in the kitchen' },
+    { id: 'q-vocab-3', mode: 'vocab', topic: 'Things at the park' },
+  ];
+  // q-vocab-2 already has a valid script (restored from an earlier artifact).
+  const restored = writePreparedScript(dir, batch[3], { provider: 'gemini', model: 'gemini-3.6-flash' }, { topic: batch[3].topic, ...vocabRaw } as never);
+  const restoredBytes = readFileSync(restored, 'utf8');
+
+  let geminiCalls = 0;
+  const calls = ollamaMock((body) => (body.format.properties.sceneId ? dialogueRaw : vocabRaw));
+  const ollamaFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string, init: RequestInit) => {
+    if (String(url).endsWith('/v1beta/interactions')) {
+      calls.push({ url: String(url), body: JSON.parse(String(init.body)) });
+      return ++geminiCalls === 1 ? json(textInteraction(JSON.stringify(dialogueRaw))) : dailyQuota429();
+    }
+    return ollamaFetch(url, init);
+  }) as typeof fetch;
+
+  const state = await prepareWithGemini({ dir, stateFile, date: 'test', episodes: batch, gemini: gemini() });
+  assert.equal(geminiCalls, 2, 'no Gemini call after the daily-quota error');
+  assert.equal(state.geminiDailyQuota?.episodeId, 'q-vocab-1');
+  assert.ok(state.geminiDailyQuota?.message.includes(PRODUCTION_DAILY_QUOTA));
+  assert.deepEqual(state.fallback.map((f) => [f.id, f.reason, f.geminiCalled]), [
+    ['q-vocab-1', 'daily-quota', true],
+    ['q-dialogue-2', 'daily-quota', false],
+    ['q-vocab-3', 'daily-quota', false],
+  ]);
+  assert.equal(state.results['q-vocab-2'].reused, true);
+  const firstBytes = readFileSync(preparedFile(dir, 'q-dialogue-1'), 'utf8');
+  assert.equal(JSON.parse(firstBytes).provider, 'gemini');
+  assert.equal(calls.filter((c) => isOllama(c.url)).length, 0, 'phase 1 never touches Ollama');
+
+  const done = await prepareWithOllama({ dir, stateFile });
+  checkPrepared(dir, done);
+  assert.equal(geminiCalls, 2, 'still no further Gemini calls');
+  assert.equal(calls.filter((c) => c.url.endsWith('/api/version')).length, 1);
+  assert.equal(calls.filter((c) => c.url.endsWith('/api/generate')).length, 1, 'one model load for dialogue and vocab');
+  const chats = calls.filter((c) => c.url.endsWith('/api/chat'));
+  assert.deepEqual(chats.map((c) => (c.body.format.properties.sceneId ? 'dialogue' : 'vocab')), ['vocab', 'dialogue', 'vocab']);
+  assert.equal(readFileSync(preparedFile(dir, 'q-dialogue-1'), 'utf8'), firstBytes, 'Gemini JSON preserved');
+  assert.equal(readFileSync(restored, 'utf8'), restoredBytes, 'restored JSON reused untouched');
+  assert.deepEqual(
+    batch.map((e) => [e.id, done.results[e.id].provider, Boolean(done.results[e.id].reused)]),
+    [['q-dialogue-1', 'gemini', false], ['q-vocab-1', 'ollama', false], ['q-dialogue-2', 'ollama', false], ['q-vocab-2', 'gemini', true], ['q-vocab-3', 'ollama', false]],
+  );
+
+  const md = summarizeBatch(done);
+  assert.match(md, /\*\*Gemini daily quota exhausted\*\* at `q-vocab-1`/);
+  assert.match(md, /Gemini was not called for the 2 remaining episode\(s\)/);
+  assert.match(md, /- Reused: `q-vocab-2`/);
+  assert.match(md, /- Generated by Gemini: `q-dialogue-1`/);
+  assert.match(md, /- Generated by Qwen: `q-vocab-1`, `q-dialogue-2`, `q-vocab-3`/);
 });
