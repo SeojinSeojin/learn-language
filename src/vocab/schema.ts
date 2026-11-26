@@ -100,11 +100,12 @@ export function vocabWordIssues(w: VocabWord, n: string): string[] {
   return issues;
 }
 
-/** One raw entry → a trimmed word if it has every field and passes the field checks, else undefined. */
-export function parseVocabWord(raw: unknown): VocabWord | undefined {
+/** One raw entry → the trimmed word if it has every field and passes the field checks, else the issues. */
+export function parseVocabWord(raw: unknown, n = 'word'): { word?: VocabWord; issues: string[] } {
   const parsed = WordZ.safeParse(raw);
-  if (!parsed.success) return undefined;
-  return vocabWordIssues(parsed.data, 'word').length ? undefined : parsed.data;
+  if (!parsed.success) return { issues: parsed.error.issues.map((i) => `${n} ${i.path.join('.') || '(entry)'}: ${i.message}`) };
+  const issues = vocabWordIssues(parsed.data, n);
+  return issues.length ? { issues } : { word: parsed.data, issues };
 }
 
 /** Validates and normalizes (trims) a raw word list. Throws VocabValidationError. */

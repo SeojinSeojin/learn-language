@@ -85,6 +85,7 @@ for (const [what, repeat] of [
         'only 7 unique valid words, need at least 8',
         'call 1: 6 unique valid of 12 entries',
         'follow-up for 2: 1 unique valid of 2 entries',
+        `follow-up entry 1 repeats ${repeat.esMX === 'la puerta' ? 'Korean "입구"' : 'Spanish "La  Entrada"'}`,
       ]);
       assert.match(err.hint ?? '', /re-running/, 'retryable');
       return true;

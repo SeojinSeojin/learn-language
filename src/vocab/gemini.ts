@@ -83,7 +83,7 @@ export function buildMissingWordsPrompt(topic: string, count: number, accepted: 
   const clean = (v: string) => v.replace(/[<>]/g, '');
   return [
     ...vocabIntro(topic),
-    'These words are already in the list. Do NOT use any of these Spanish words or Korean words again, not even with another article or spelling:',
+    'These words are already in the list (including any word the topic features). Do NOT use any of these Spanish words or Korean words again, not even with another article, spelling or plural:',
     `- Spanish (esMX): ${accepted.map((w) => `"${clean(w.esMX)}"`).join(', ') || 'none'}`,
     `- Korean (ko): ${accepted.map((w) => `"${clean(w.ko)}"`).join(', ') || 'none'}`,
     '',
@@ -99,6 +99,8 @@ export interface UniqueWordsResult {
   received: number;
   /** Entries accepted from this answer (individually valid, not repeating an accepted word). */
   added: number;
+  /** Why each other entry was skipped, e.g. 'entry 3 repeats Spanish "la entrada"'. */
+  rejected: string[];
 }
 
 /**
@@ -107,20 +109,30 @@ export interface UniqueWordsResult {
  */
 export function acceptUniqueWords(raw: unknown, accepted: VocabWord[]): UniqueWordsResult {
   const words = (raw as { words?: unknown })?.words;
-  if (!Array.isArray(words)) return { received: 0, added: 0 };
+  if (!Array.isArray(words)) return { received: 0, added: 0, rejected: [] };
   const es = new Set(accepted.map((w) => vocabKey(w.esMX)));
   const ko = new Set(accepted.map((w) => vocabKey(w.ko)));
   let added = 0;
-  for (const entry of words) {
-    const word = parseVocabWord(entry);
-    if (!word || es.has(vocabKey(word.esMX)) || ko.has(vocabKey(word.ko))) continue;
+  const rejected: string[] = [];
+  for (const [i, entry] of words.entries()) {
+    const n = `entry ${i + 1}`;
+    const { word, issues } = parseVocabWord(entry, n);
+    if (!word) {
+      rejected.push(...issues);
+      continue;
+    }
+    const dup = [es.has(vocabKey(word.esMX)) && `Spanish "${word.esMX}"`, ko.has(vocabKey(word.ko)) && `Korean "${word.ko}"`].filter(Boolean);
+    if (dup.length) {
+      rejected.push(`${n} repeats ${dup.join(' and ')}`);
+      continue;
+    }
     if (accepted.length >= VOCAB_MAX) break;
     accepted.push(word);
     es.add(vocabKey(word.esMX));
     ko.add(vocabKey(word.ko));
     added++;
   }
-  return { received: words.length, added };
+  return { received: words.length, added, rejected };
 }
 
 function tryParseJson(text: string): unknown {
@@ -139,23 +151,25 @@ function tryParseJson(text: string): unknown {
  */
 async function generateVocabLocal(topic: string, generator: TextGenerator): Promise<VocabList> {
   const accepted: VocabWord[] = [];
+  let rejectedInFollowUp: string[] = [];
   const first = tryParseJson(await generator.generate(buildVocabPrompt(topic, [], VOCAB_MIN), vocabJsonSchema(VOCAB_MIN)));
   const c1 = acceptUniqueWords(first, accepted);
   const hashtags = (first as { hashtags?: unknown })?.hashtags;
   const calls = [`call 1: ${c1.added} unique valid of ${c1.received} entries${first === undefined ? ' (not valid JSON)' : ''}`];
-  console.log(`  … ${generator.label} word list ${calls[0]}.`);
+  console.log(`  … ${generator.label} word list ${calls[0]}.${c1.rejected.length ? ` Skipped: ${c1.rejected.join('; ')}` : ''}`);
 
   if (accepted.length < VOCAB_MIN) {
     const missing = VOCAB_MIN - accepted.length;
     const second = tryParseJson(await generator.generate(buildMissingWordsPrompt(topic, missing, accepted), vocabMissingWordsJsonSchema(missing)));
     const c2 = acceptUniqueWords(second, accepted);
     calls.push(`follow-up for ${missing}: ${c2.added} unique valid of ${c2.received} entries${second === undefined ? ' (not valid JSON)' : ''}`);
-    console.log(`  … ${generator.label} word list ${calls[1]}.`);
+    console.log(`  … ${generator.label} word list ${calls[1]}.${c2.rejected.length ? ` Skipped: ${c2.rejected.join('; ')}` : ''}`);
+    rejectedInFollowUp = c2.rejected;
   }
 
   if (accepted.length < VOCAB_MIN) {
     throw new VocabValidationError(
-      [`only ${accepted.length} unique valid words, need at least ${VOCAB_MIN}`, ...calls],
+      [`only ${accepted.length} unique valid words, need at least ${VOCAB_MIN}`, ...calls, ...rejectedInFollowUp.map((r) => `follow-up ${r}`)],
       `${generator.label} did not produce enough distinct words for "${topic}"`,
     );
   }
