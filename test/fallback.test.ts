@@ -14,7 +14,7 @@ import { checkPrepared, prepareWithGemini, prepareWithOllama, type BatchState } 
 import { PreparedScriptError, preparedFile, readPreparedScript, writePreparedScript, type EpisodeRef } from '../src/prepared/script';
 import { SAMPLE_DIALOGUE } from '../src/dialogue/sample';
 import { SAMPLE_VOCAB } from '../src/vocab/sample';
-import { dropRepeatedWords } from '../src/vocab/gemini';
+import { VocabValidationError } from '../src/vocab/schema';
 import { DialogueValidationError, dialogueJsonSchema } from '../src/dialogue/schema';
 import { ProviderUnavailableError, QuotaExhaustedError, UserFacingError } from '../src/util/errors';
 
@@ -251,18 +251,29 @@ test('a prepared Edge TTS run blocks every Gemini request before it reaches the 
   }
 });
 
-test('Qwen word lists padded with repeats keep the distinct words; too few distinct words still fail validation', async () => {
+test('Qwen word list through the batch: repeats are skipped in place; too few distinct words stop the episode with no file', async () => {
   const words = SAMPLE_VOCAB.words; // 10 distinct
   const padded = { words: [...words, words[0], { ...words[1], en: 'x' }], hashtags: [] };
-  assert.equal((dropRepeatedWords(padded) as { words: unknown[] }).words.length, 10);
-  const tooFew = { words: [...words.slice(0, 7), words[0], words[1]] };
-  assert.equal(dropRepeatedWords(tooFew), tooFew, 'left for the validator to reject');
-
-  const dir = tmp();
-  const stateFile = join(dir, 'state.json');
-  writeFileSync(stateFile, JSON.stringify({ date: 'test', episodes: [EPISODES[1]], results: {}, fallback: [{ id: EPISODES[1].id, reason: 'timeout', message: 'x' }] }));
+  let dir = tmp();
+  let stateFile = join(dir, 'state.json');
+  const fallback = [{ id: EPISODES[1].id, reason: 'timeout', message: 'x' }];
+  writeFileSync(stateFile, JSON.stringify({ date: 'test', episodes: [EPISODES[1]], results: {}, fallback }));
   ollamaMock(() => padded);
   const state = await prepareWithOllama({ dir, stateFile });
-  assert.equal(readPreparedScript(preparedFile(dir, EPISODES[1].id), EPISODES[1]).script.topic, EPISODES[1].topic);
-  assert.equal(state.results[EPISODES[1].id].requests, 1);
+  assert.equal((readPreparedScript(preparedFile(dir, EPISODES[1].id), EPISODES[1]).script as { words: unknown[] }).words.length, 10);
+  assert.equal(state.results[EPISODES[1].id].requests, 1, '10 distinct ≥ 8: no follow-up');
+
+  dir = tmp();
+  stateFile = join(dir, 'state.json');
+  writeFileSync(stateFile, JSON.stringify({ date: 'test', episodes: [EPISODES[1]], results: {}, fallback }));
+  const calls = ollamaMock(() => ({ words: [words[0], words[1], words[0]], hashtags: [] }));
+  await assert.rejects(prepareWithOllama({ dir, stateFile }), (err: unknown) => {
+    assert.ok(err instanceof VocabValidationError);
+    assert.match(err.message, /did not produce enough distinct words for "Fruits at the market"/);
+    assert.match(err.message, /call 1: 2 unique valid of 3 entries/);
+    assert.match(err.message, /follow-up for 6: 0 unique valid of 3 entries/);
+    return true;
+  });
+  assert.equal(calls.filter((c) => c.url.endsWith('/api/chat')).length, 2, 'exactly one follow-up');
+  assert.equal(existsSync(preparedFile(dir, EPISODES[1].id)), false, 'nothing reaches the child / TTS');
 });
