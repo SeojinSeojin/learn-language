@@ -74,6 +74,11 @@
       "runId": 45929694587,
       "videoId": "me8jfU2Ff18",
       "visibility": "public"
+    },
+    "d02-vocab-3": {
+      "date": "2026-11-26",
+      "controller": "45927735587/1",
+      "status": "dispatched"
     }
   }
 }
