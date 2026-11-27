@@ -46,8 +46,10 @@
     "d02-dialogue-2": {
       "date": "2026-11-26",
       "controller": "45927735587/1",
-      "status": "uploading",
-      "runId": 45928409960
+      "status": "published",
+      "runId": 45928409960,
+      "videoId": "GOefmtiOyGI",
+      "visibility": "public"
     }
   }
 }
