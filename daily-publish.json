@@ -62,8 +62,10 @@
     "d02-vocab-1": {
       "date": "2026-11-26",
       "controller": "45927735587/1",
-      "status": "uploading",
-      "runId": 45929291352
+      "status": "published",
+      "runId": 45929291352,
+      "videoId": "BEPnNyoe-HU",
+      "visibility": "public"
     }
   }
 }
