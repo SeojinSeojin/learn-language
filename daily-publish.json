@@ -102,8 +102,10 @@
     "d03-dialogue-3": {
       "date": "2026-11-27",
       "controller": "46096314650/1",
-      "status": "uploading",
-      "runId": 46097252978
+      "status": "published",
+      "runId": 46097252978,
+      "videoId": "KKDmGxnHZCE",
+      "visibility": "public"
     }
   }
 }
