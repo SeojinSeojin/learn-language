@@ -18,27 +18,32 @@ export const VOCAB_LIMITS = {
   imageQuery: { min: 1, max: 50 },
 } as const;
 
-export function vocabJsonSchema() {
+function vocabWordsArraySchema(minItems: number, maxItems: number) {
+  return {
+    type: 'array',
+    minItems,
+    maxItems,
+    items: {
+      type: 'object',
+      properties: {
+        esMX: { type: 'string', description: 'Mexican Spanish word; nouns with their definite article (el/la/los/las).' },
+        ko: { type: 'string', description: 'The Korean word, Hangul only.' },
+        koPronunciation: { type: 'string', description: 'English-friendly pronunciation guide of the Korean word, syllables joined by hyphens.' },
+        en: { type: 'string', description: 'The English word (no article).' },
+        wikiTitle: { type: 'string', description: 'Exact title of the English Wikipedia article whose main photo shows this thing.' },
+        imageQuery: { type: 'string', description: '1 to 3 English words to search a photo of this thing.' },
+      },
+      required: ['esMX', 'ko', 'koPronunciation', 'en', 'wikiTitle', 'imageQuery'],
+    },
+  };
+}
+
+/** Full word-list schema. `count` narrows the list to exactly that many words (the Qwen first call uses VOCAB_MIN). */
+export function vocabJsonSchema(count?: number) {
   return {
     type: 'object',
     properties: {
-      words: {
-        type: 'array',
-        minItems: VOCAB_MIN,
-        maxItems: VOCAB_MAX,
-        items: {
-          type: 'object',
-          properties: {
-            esMX: { type: 'string', description: 'Mexican Spanish word; nouns with their definite article (el/la/los/las).' },
-            ko: { type: 'string', description: 'The Korean word, Hangul only.' },
-            koPronunciation: { type: 'string', description: 'English-friendly pronunciation guide of the Korean word, syllables joined by hyphens.' },
-            en: { type: 'string', description: 'The English word (no article).' },
-            wikiTitle: { type: 'string', description: 'Exact title of the English Wikipedia article whose main photo shows this thing.' },
-            imageQuery: { type: 'string', description: '1 to 3 English words to search a photo of this thing.' },
-          },
-          required: ['esMX', 'ko', 'koPronunciation', 'en', 'wikiTitle', 'imageQuery'],
-        },
-      },
+      words: vocabWordsArraySchema(count ?? VOCAB_MIN, count ?? VOCAB_MAX),
       hashtags: {
         type: 'array',
         maxItems: HASHTAG_MAX,
@@ -48,6 +53,11 @@ export function vocabJsonSchema() {
     },
     required: ['words', 'hashtags'],
   };
+}
+
+/** Schema for a follow-up that asks only for `count` missing words (no hashtags), so a short answer is valid. */
+export function vocabMissingWordsJsonSchema(count: number) {
+  return { type: 'object', properties: { words: vocabWordsArraySchema(count, count) }, required: ['words'] };
 }
 
 export class VocabValidationError extends UserFacingError {
@@ -70,7 +80,33 @@ const ListZ = z.object({ words: z.array(WordZ), hashtags: z.unknown().optional()
 const HANGUL = /\p{Script=Hangul}/u;
 const LATIN = /\p{Script=Latin}/u;
 const len = (s: string) => Array.from(s).length;
-const key = (s: string) => s.normalize('NFC').toLowerCase().replace(/\s+/g, ' ');
+/** Normalized form used to detect a repeated Spanish or Korean word. */
+export const vocabKey = (s: string) => s.normalize('NFC').toLowerCase().replace(/\s+/g, ' ');
+
+/** Field-level issues for one (trimmed) word: lengths and script rules. Shared by the list validator. */
+export function vocabWordIssues(w: VocabWord, n: string): string[] {
+  const issues: string[] = [];
+  for (const k of Object.keys(VOCAB_LIMITS) as (keyof typeof VOCAB_LIMITS)[]) {
+    const { min, max } = VOCAB_LIMITS[k];
+    const L = len(w[k]);
+    if (L < min) issues.push(`${n} ${k} is empty`);
+    else if (L > max) issues.push(`${n} ${k} is ${L} characters (max ${max}): "${w[k]}"`);
+  }
+  if (w.ko && !HANGUL.test(w.ko)) issues.push(`${n} ko must be written in Hangul: "${w.ko}"`);
+  if (LATIN.test(w.ko)) issues.push(`${n} ko must not contain Latin letters: "${w.ko}"`);
+  for (const k of ['esMX', 'en', 'koPronunciation', 'wikiTitle', 'imageQuery'] as const) {
+    if (HANGUL.test(w[k])) issues.push(`${n} ${k} must not contain Hangul: "${w[k]}"`);
+  }
+  return issues;
+}
+
+/** One raw entry → the trimmed word if it has every field and passes the field checks, else the issues. */
+export function parseVocabWord(raw: unknown, n = 'word'): { word?: VocabWord; issues: string[] } {
+  const parsed = WordZ.safeParse(raw);
+  if (!parsed.success) return { issues: parsed.error.issues.map((i) => `${n} ${i.path.join('.') || '(entry)'}: ${i.message}`) };
+  const issues = vocabWordIssues(parsed.data, n);
+  return issues.length ? { issues } : { word: parsed.data, issues };
+}
 
 /** Validates and normalizes (trims) a raw word list. Throws VocabValidationError. */
 export function validateVocab(raw: unknown, topic: string): VocabList {
@@ -86,21 +122,11 @@ export function validateVocab(raw: unknown, topic: string): VocabList {
   const seen = { esMX: new Set<string>(), ko: new Set<string>() };
   words.forEach((w, idx) => {
     const n = `word ${idx + 1}`;
-    for (const k of Object.keys(VOCAB_LIMITS) as (keyof typeof VOCAB_LIMITS)[]) {
-      const { min, max } = VOCAB_LIMITS[k];
-      const L = len(w[k]);
-      if (L < min) issues.push(`${n} ${k} is empty`);
-      else if (L > max) issues.push(`${n} ${k} is ${L} characters (max ${max}): "${w[k]}"`);
-    }
-    if (w.ko && !HANGUL.test(w.ko)) issues.push(`${n} ko must be written in Hangul: "${w.ko}"`);
-    if (LATIN.test(w.ko)) issues.push(`${n} ko must not contain Latin letters: "${w.ko}"`);
-    for (const k of ['esMX', 'en', 'koPronunciation', 'wikiTitle', 'imageQuery'] as const) {
-      if (HANGUL.test(w[k])) issues.push(`${n} ${k} must not contain Hangul: "${w[k]}"`);
-    }
+    issues.push(...vocabWordIssues(w, n));
     for (const k of ['esMX', 'ko'] as const) {
       if (!w[k]) continue;
-      if (seen[k].has(key(w[k]))) issues.push(`${n} repeats the word "${w[k]}"; every word must be different`);
-      seen[k].add(key(w[k]));
+      if (seen[k].has(vocabKey(w[k]))) issues.push(`${n} repeats the word "${w[k]}"; every word must be different`);
+      seen[k].add(vocabKey(w[k]));
     }
   });
   if (issues.length) throw new VocabValidationError(issues);
