@@ -126,8 +126,10 @@
     "d03-vocab-3": {
       "date": "2026-11-27",
       "controller": "46096314650/1",
-      "status": "uploading",
-      "runId": 46098386674
+      "status": "published",
+      "runId": 46098386674,
+      "videoId": "sZrTRx0i17U",
+      "visibility": "public"
     }
   }
 }
